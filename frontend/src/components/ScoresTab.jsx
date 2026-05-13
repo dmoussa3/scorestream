@@ -1,0 +1,189 @@
+import { usePoll } from '../hooks/usePoll'
+
+const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
+const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
+
+export default function ScoresTab({ onSelectGame }) {
+    const { data: games, loading, error } = usePoll('/games', 30000)
+
+    if (loading) return <div className="text-gray-400 p-4">Loading matches...</div>
+    if (error)   return <div className="text-red-400 p-4">Error loading matches: {error}</div>
+    if (!games?.length) return <div className="text-[#37003c] p-4">No matches found today.</div>
+
+    const live = games.filter(g => LIVE_STATUSES.includes(g.status))
+    const completed = games.filter(g => FINAL_STATUSES.includes(g.status))
+    const upcoming  = games.filter(g => !LIVE_STATUSES.includes(g.status) && !FINAL_STATUSES.includes(g.status))
+
+    return (
+        <div className="space-y-8">
+            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} />
+            <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} />
+            <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} />
+
+            {/* Legend */}
+            <div className="border-t border-gray-200 pt-6">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#37003c] opacity-60 mb-3">
+                    Legend
+                </p>
+                <div className="flex flex-wrap gap-4 text-xs text-[#37003c]">
+                    <span className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-[#00ff85] text-[#37003c] font-semibold">
+                            🔴 Live
+                        </span>
+                        Match in progress
+                    </span>
+                    <span className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-white opacity-70 text-[#37003c] font-semibold border border-gray-200">
+                            FT
+                        </span>
+                        Full time
+                    </span>
+                    <span className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-purple-300 text-[#37003c] font-semibold">
+                            HT
+                        </span>
+                        Half time
+                    </span>
+                    <span className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-purple-300 text-[#37003c] font-semibold">
+                            KO
+                        </span>
+                        Upcoming kickoff
+                    </span>
+                    <span className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-[#00ff85] inline-block" />
+                        Click any card to view match details
+                    </span>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function Section({ title, accent, games, onSelect }) {
+    if (!games.length) return null
+
+    const colors = {
+        green: 'text-[#37003c] font-bold',
+        gray:  'text-[#37003c] font-bold',
+        blue:  'text-[#37003c] font-bold'
+    }
+
+    return (
+        <div>
+            <h2 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${colors[accent]}`}>
+                {title} — {games.length} match{games.length !== 1 ? 'es' : ''}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {games.map(game => (
+                    <GameCard key={game.game_id} game={game} onSelect={onSelect} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function GameCard({ game, onSelect }) {
+    const isLive = LIVE_STATUSES.includes(game.status)
+    const isFinal = FINAL_STATUSES.includes(game.status)
+
+    const startTimeUTC = game.start_time ? new Date(game.start_time + 'Z') : null
+
+    const formattedTime = startTimeUTC?.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: 'America/New_York'
+    }) ?? '—'
+
+    const badgeText = (isFinal, isLive, game) => {
+        if (isLive && game.status === 'STATUS_HALFTIME') return 'HT'
+        if (isLive) return `🔴 ${game.clock || 'Live'}`
+        if (isFinal) return 'FT'
+
+        if (formattedTime) return 'KO'
+
+        return 'TBD'
+    }
+
+    function TeamLogo({ teamId, team, size=10 }) {
+        return (
+            <img
+                src={`https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`}
+                alt={team}
+                className={`w-${size} h-${size} object-contain`}
+                onError={(e) => {e.target.style.display = 'none'}}
+            />
+        )
+    }
+
+    return (
+        <div
+            onClick={() => onSelect(game.game_id)}
+            className="bg-[#2d0032] border border-purple-800 rounded-lg p-4 cursor-pointer hover:border-[#00ff85] transition-colors"
+        >
+            {/* Status bar */}
+            <div className="flex items-center justify-between mb-3">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                    isLive && game.status === 'STATUS_HALFTIME' ? 'bg-purple-300 text-[#37003c]' :
+                    isLive ? 'bg-[#00ff85] text-[#37003c]' :
+                    isFinal ? 'bg-white opacity-70 text-[#37003c] border border-gray-200' :
+                            'bg-purple-300 text-[#37003c]'
+                }`}>
+                    {badgeText(isFinal, isLive, game)}
+                </span>
+                <span className="text-xs text-purple-300">
+                    {badgeText(isFinal, isLive, game) === 'TBD' ? 'Time TBD' : 
+                     badgeText(isFinal, isLive, game) === 'KO' ? formattedTime : ''}
+                </span>
+            </div>
+
+            {/* Score row */}
+            <div className="flex items-center justify-between">
+
+                {/* Home team */}
+                <div className="flex-1 flex flex-col items-end gap-1">
+                    <TeamLogo teamId={game.home_id} team={game.home_team} />
+                    <span className="text-lg font-medium text-white">{game.home_team}</span>
+                </div>
+
+                {/* Score */}
+                <div className="mx-4 flex items-center gap-2">
+                    {isFinal || isLive ? (
+                        <>
+                            <span className="text-3xl font-bold text-white">{game.home_score}</span>
+                            <span className="text-purple-600">–</span>
+                            <span className="text-3xl font-bold text-white">{game.away_score}</span>
+                        </>
+                    ) : (
+                        <span className="text-purple-300 text-lg">vs</span>
+                    )}
+                </div>
+                
+                {/* Away team */}
+                <div className="flex-1 flex flex-col items-start gap-1">
+                    <TeamLogo teamId={game.away_id} team={game.away_team} />
+                    <span className="text-lg font-medium text-white">{game.away_team}</span>
+                </div>
+            </div>
+
+            {/* Period indicator for live games */}
+            {isLive && (
+                <div className="mt-2 text-center text-xs text-purple-300">
+                    {Number(game.period) === 1 ? '1st Half' : '2nd Half'}
+                </div>
+            )}
+
+            {!isLive && !isFinal && (
+                <div className="mt-2 text-center text-xs text-purple-300">
+                    Kickoff at {formattedTime} ET
+                </div>
+            )}
+
+            {isFinal && (
+                <div className="mt-2 text-center text-md text-purple-300">
+                    Full time
+                </div>
+            )}
+        </div>
+    )
+}
