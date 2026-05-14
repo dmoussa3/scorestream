@@ -21,7 +21,7 @@ export default function StandingsTab() {
             
             <div className='flex gap-6 items-start'>
                 {/* TABLE */}
-                <div className="bg-[#2d0032] rounded-lg border border-purple-800 overflow-hidden">
+                <div className="bg-[#2d0032] rounded-lg border border-[#00ff85] overflow-hidden">
 
                     {/* Header */}
                     <div className="grid grid-cols-12 gap-2 px-6 py-4 text-sm font-semibold text-purple-400 uppercase tracking-wider border-b border-purple-800">

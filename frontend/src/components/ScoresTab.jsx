@@ -28,7 +28,7 @@ export default function ScoresTab({ onSelectGame }) {
                 <div className="flex flex-wrap gap-4 text-xs text-[#37003c]">
                     <span className="flex items-center gap-2">
                         <span className="px-2 py-0.5 rounded bg-[#00ff85] text-[#37003c] font-semibold">
-                            🔴 Live
+                            🔴
                         </span>
                         Match in progress
                     </span>
@@ -36,19 +36,19 @@ export default function ScoresTab({ onSelectGame }) {
                         <span className="px-2 py-0.5 rounded bg-white opacity-70 text-[#37003c] font-semibold border border-gray-200">
                             FT
                         </span>
-                        Full time
+                        Full-time
                     </span>
                     <span className="flex items-center gap-2">
                         <span className="px-2 py-0.5 rounded bg-purple-300 text-[#37003c] font-semibold">
                             HT
                         </span>
-                        Half time
+                        Halftime
                     </span>
                     <span className="flex items-center gap-2">
                         <span className="px-2 py-0.5 rounded bg-purple-300 text-[#37003c] font-semibold">
                             KO
                         </span>
-                        Upcoming kickoff
+                        Upcoming Kickoff
                     </span>
                     <span className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full bg-[#00ff85] inline-block" />
@@ -131,9 +131,8 @@ function GameCard({ game, onSelect }) {
                 }`}>
                     {badgeText(isFinal, isLive, game)}
                 </span>
-                <span className="text-xs text-purple-300">
-                    {badgeText(isFinal, isLive, game) === 'TBD' ? 'Time TBD' : 
-                     badgeText(isFinal, isLive, game) === 'KO' ? formattedTime : ''}
+                <span className="text-sm text-purple-300">
+                    {new Date(startTimeUTC).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
             </div>
 
@@ -174,14 +173,14 @@ function GameCard({ game, onSelect }) {
             )}
 
             {!isLive && !isFinal && (
-                <div className="mt-2 text-center text-xs text-purple-300">
-                    Kickoff at {formattedTime} ET
+                <div className="mt-2 text-center text-md text-purple-300">
+                    Kickoff at {formattedTime} EDT
                 </div>
             )}
 
             {isFinal && (
                 <div className="mt-2 text-center text-md text-purple-300">
-                    Full time
+                    Full-time
                 </div>
             )}
         </div>
