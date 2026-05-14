@@ -1,10 +1,22 @@
 import { usePoll } from '../hooks/usePoll'
+import { useGameWatcher } from '../hooks/useGameWatcher'
+import { useNotifications } from '../hooks/useNotifications'
+import { useState } from 'react'
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
 const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
 
 export default function ScoresTab({ onSelectGame }) {
-    const { data: games, loading, error } = usePoll('/games', 30000)
+    const { data: games, loading, error } = usePoll('/games', 15000)
+
+    const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+    const { notify } = useNotifications()
+
+    const conditionallyEnableNotifications = (...args) => {
+        if (notificationsEnabled) notify(...args)
+    }
+
+    useGameWatcher(games, conditionallyEnableNotifications)
 
     if (loading) return <div className="text-gray-400 p-4">Loading matches...</div>
     if (error)   return <div className="text-red-400 p-4">Error loading matches: {error}</div>
@@ -16,6 +28,20 @@ export default function ScoresTab({ onSelectGame }) {
 
     return (
         <div className="space-y-8">
+
+            {/* Notification toggle */}
+            <div className='flex justify-end'>
+                <button
+                    onClick={() => setNotificationsEnabled(prev => !prev)}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                        notificationsEnabled ? 'bg-[#00ff85] text-[#37003c]' :
+                        'bg-purple-900 text-purple-300 hover:bg-purple-300 hover:text-[#37003c]'
+                    }`}
+                >
+                    {notificationsEnabled ? '🔔 Notifications On' : '🔕 Notifications Off'}
+                </button>
+            </div>
+
             <Section title="Live" accent="green" games={live} onSelect={onSelectGame} />
             <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} />
             <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} />
