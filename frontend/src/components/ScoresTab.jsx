@@ -2,24 +2,23 @@ import { usePoll } from '../hooks/usePoll'
 import { useGameWatcher } from '../hooks/useGameWatcher'
 import { useNotifications } from '../hooks/useNotifications'
 import { useState } from 'react'
+import { useSubscriptions } from '../hooks/useSubscriptions'
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
 const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
 
 export default function ScoresTab({ onSelectGame }) {
     const { data: games, loading, error } = usePoll('/games', 15000)
-
     const [notificationsEnabled, setNotificationsEnabled] = useState(Notification.permission === 'granted')
     const { notify } = useNotifications()
+    const { subscriptions, toggle, isSubscribed } = useSubscriptions()
 
     const isBlocked = Notification.permission === 'denied'
     const isActive = notificationsEnabled && !isBlocked
 
-    const conditionallyEnableNotifications = (...args) => {
-        if (isActive) notify(...args)
-    }
+    const conditionallyEnableNotifications = (...args) => { if (isActive) notify(...args) }
 
-    useGameWatcher(games, conditionallyEnableNotifications)
+    useGameWatcher(games, conditionallyEnableNotifications, subscriptions)
 
     if (loading) return <div className="text-gray-400 p-4">Loading matches...</div>
     if (error)   return <div className="text-red-400 p-4">Error loading matches: {error}</div>
@@ -47,17 +46,17 @@ export default function ScoresTab({ onSelectGame }) {
                     title={isBlocked ? 'Notifications are blocked. Please enable them in your browser settings.' : ''}
                 >
                     {isBlocked
-                            ? '🚫 Notifications Blocked'
-                            : isActive
-                                ? '🔔 Notifications On'
-                                : '🔕 Notifications Off'
-                        }                
+                        ? '🚫 Notifications Blocked'
+                        : isActive
+                            ? '🔔 Notifications On'
+                            : '🔕 Notifications Off'
+                    }                
                 </button>
             </div>
 
-            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} />
-            <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} />
-            <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} />
+            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
+            <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
+            <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
 
             {/* Legend */}
             <div className="border-t border-gray-200 pt-6">
@@ -99,7 +98,7 @@ export default function ScoresTab({ onSelectGame }) {
     )
 }
 
-function Section({ title, accent, games, onSelect }) {
+function Section({ title, accent, games, onSelect, isSubscribed, onToggleSubscription, notificationsActive }) {
     if (!games.length) return null
 
     const colors = {
@@ -115,14 +114,14 @@ function Section({ title, accent, games, onSelect }) {
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {games.map(game => (
-                    <GameCard key={game.game_id} game={game} onSelect={onSelect} />
+                    <GameCard key={game.game_id} game={game} onSelect={onSelect} isSubscribed={isSubscribed(game.game_id)} onToggleSubscription={() => {onToggleSubscription(game.game_id)}} notificationsActive={notificationsActive} />
                 ))}
             </div>
         </div>
     )
 }
 
-function GameCard({ game, onSelect }) {
+function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notificationsActive }) {
     const isLive = LIVE_STATUSES.includes(game.status)
     const isFinal = FINAL_STATUSES.includes(game.status)
 
@@ -146,23 +145,43 @@ function GameCard({ game, onSelect }) {
 
     function TeamLogo({ teamId, team, size=10 }) {
         return (
-            <img
-                src={`https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`}
-                alt={team}
-                className={`w-${size} h-${size} object-contain`}
-                onError={(e) => {e.target.style.display = 'none'}}
-            />
+            <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
+                <img
+                    src={`https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`}
+                    alt={team}
+                    className={`w-${size} h-${size} object-contain`}
+                    onError={(e) => {e.target.style.display = 'none'}}
+                />
+            </div>
         )
     }
 
     return (
         <div
             onClick={() => onSelect(game.game_id)}
-            className="bg-[#2d0032] border border-purple-800 rounded-lg p-4 cursor-pointer hover:border-[#00ff85] transition-colors"
+            className="bg-[#2d0032] border border-purple-800 rounded-lg p-4 cursor-pointer hover:border-[#00ff85] transition-colors relative"
             title='Click to view match details'
         >
+            {/* Subscription toggle */}
+            {notificationsActive && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onToggleSubscription()
+                    }}
+                    className={`absolute top-4 right-4 text-md transition-colors rounded ${
+                        isSubscribed ? 'bg-[#00ff85]' : 'bg-purple-600 hover:bg-purple-300'}`}
+                    title={isSubscribed ? 'Unsubscribe' : 'Subscribe to notifications'}
+                >
+                    {!isFinal ?
+                        isSubscribed ? '🔔' : '🔕'
+                        : ''
+                    }
+                </button>
+            )}
+
             {/* Status bar */}
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between">
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
                     isLive && game.status === 'STATUS_HALFTIME' ? 'bg-purple-300 text-[#37003c]' :
                     isLive ? 'bg-[#00ff85] text-[#37003c]' :
@@ -171,6 +190,9 @@ function GameCard({ game, onSelect }) {
                 }`}>
                     {badgeText(isFinal, isLive, game)}
                 </span>
+            </div>
+
+            <div className='text-center text-xs text-purple-300 mb-4'>
                 <span className="text-sm text-purple-300">
                     {new Date(startTimeUTC).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
@@ -180,7 +202,7 @@ function GameCard({ game, onSelect }) {
             <div className="flex items-center justify-between">
 
                 {/* Home team */}
-                <div className="flex-1 flex flex-col items-end gap-1">
+                <div className="flex-1 flex flex-col items-center gap-1 pr-4">
                     <TeamLogo teamId={game.home_id} team={game.home_team} />
                     <span className="text-lg font-medium text-white">{game.home_team}</span>
                 </div>
@@ -199,7 +221,7 @@ function GameCard({ game, onSelect }) {
                 </div>
                 
                 {/* Away team */}
-                <div className="flex-1 flex flex-col items-start gap-1">
+                <div className="flex-1 flex flex-col items-center gap-1 pl-4">
                     <TeamLogo teamId={game.away_id} team={game.away_team} />
                     <span className="text-lg font-medium text-white">{game.away_team}</span>
                 </div>
@@ -213,13 +235,13 @@ function GameCard({ game, onSelect }) {
             )}
 
             {!isLive && !isFinal && (
-                <div className="mt-2 text-center text-md text-purple-300">
-                    Kickoff at {formattedTime} EDT
+                <div className="mt-2 text-center text-sm text-purple-300">
+                    Kickoff @ {formattedTime} EDT
                 </div>
             )}
 
             {isFinal && (
-                <div className="mt-2 text-center text-md text-purple-300">
+                <div className="mt-2 text-center text-sm text-purple-300">
                     Full-time
                 </div>
             )}
