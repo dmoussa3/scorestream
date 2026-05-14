@@ -9,11 +9,14 @@ const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
 export default function ScoresTab({ onSelectGame }) {
     const { data: games, loading, error } = usePoll('/games', 15000)
 
-    const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+    const [notificationsEnabled, setNotificationsEnabled] = useState(Notification.permission === 'granted')
     const { notify } = useNotifications()
 
+    const isBlocked = Notification.permission === 'denied'
+    const isActive = notificationsEnabled && !isBlocked
+
     const conditionallyEnableNotifications = (...args) => {
-        if (notificationsEnabled) notify(...args)
+        if (isActive) notify(...args)
     }
 
     useGameWatcher(games, conditionallyEnableNotifications)
@@ -32,13 +35,23 @@ export default function ScoresTab({ onSelectGame }) {
             {/* Notification toggle */}
             <div className='flex justify-end'>
                 <button
-                    onClick={() => setNotificationsEnabled(prev => !prev)}
+                    onClick={() => {
+                        if (isBlocked) return
+                        setNotificationsEnabled(prev => !prev)
+                    }}
+
                     className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                        notificationsEnabled ? 'bg-[#00ff85] text-[#37003c]' :
-                        'bg-purple-900 text-purple-300 hover:bg-purple-300 hover:text-[#37003c]'
+                        isBlocked ? 'bg-gray-800 text-gray-500 cursor-not-allowed' :
+                        isActive ? 'bg-[#00ff85] text-[#37003c] hover:bg-[#00e676]' : 'bg-purple-900 text-purple-300'
                     }`}
+                    title={isBlocked ? 'Notifications are blocked. Please enable them in your browser settings.' : ''}
                 >
-                    {notificationsEnabled ? '🔔 Notifications On' : '🔕 Notifications Off'}
+                    {isBlocked
+                            ? '🚫 Notifications Blocked'
+                            : isActive
+                                ? '🔔 Notifications On'
+                                : '🔕 Notifications Off'
+                        }                
                 </button>
             </div>
 
@@ -146,6 +159,7 @@ function GameCard({ game, onSelect }) {
         <div
             onClick={() => onSelect(game.game_id)}
             className="bg-[#2d0032] border border-purple-800 rounded-lg p-4 cursor-pointer hover:border-[#00ff85] transition-colors"
+            title='Click to view match details'
         >
             {/* Status bar */}
             <div className="flex items-center justify-between mb-3">
