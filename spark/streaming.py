@@ -1,3 +1,4 @@
+import json
 import os
 import traceback
 from pyspark.sql.functions import size
@@ -9,6 +10,7 @@ from pyspark.sql.types import (
     StructType, StringType, IntegerType,
     BooleanType, ArrayType
 )
+from datetime import timezone, datetime
 import time
 import redis
 
@@ -129,9 +131,11 @@ def process_games(df_batch, batch_id):
             ))
         conn.commit()
 
-        cache.delete("games:all")
-        cache.delete("pipeline_health")
-        cache.delete("games:STATUS_IN_PROGRESS")
+        cache.publish("scorestream.updates", json.dumps({
+            "type": "games",
+            "batch_id": batch_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }))
 
         print(f"[spark-games] Batch {batch_id} - Processed {len(rows)} records")
     except Exception as e:
@@ -196,6 +200,13 @@ def process_goals(df_batch, batch_id):
                 row.penalty
             ))
         conn.commit()
+
+        cache.publish("scorestream.updates", json.dumps({
+            "type": "goals",
+            "batch_id": batch_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }))
+
         print(f"[spark-goals] Batch {batch_id} - Processed {len(rows)} goal records")
     except Exception as e:
         print(f"[spark-goals] Batch {batch_id} - Error processing goals batch: {e}")

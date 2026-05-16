@@ -1,4 +1,5 @@
-import { usePoll } from '../hooks/usePoll'
+import { useWebSocket } from "../hooks/useWebSocket";
+import { useCallback, useEffect, useState } from "react";
 
 const rowColors = (position) => {
     if (position === 1) { return 'border-l-4 border-b-2 border-blue-500 bg-blue-950/40'; }
@@ -9,8 +10,36 @@ const rowColors = (position) => {
     return 'border-b-2 border-purple-800'; // default row style
 };
 
-export default function StandingsTab() {
-    const { data: standings, loading, error } = usePoll('/standings', 5 * 60 * 1000)
+export default function StandingsTab({ lastUpdate}) {
+    const [standings, setStandings] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState(null)
+
+    const fetchStandings = useCallback(async () => {
+        try {
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/standings`)
+            const data = await response.json()
+            setStandings(data)
+            setLoading(false)
+        } catch (err) {
+            setError(err.message)
+        }
+    }, [])
+
+    useEffect(() => {
+        fetchStandings()
+    }, [fetchStandings])
+    
+    useEffect(() => {
+        if (lastUpdate?.type === 'standings') {
+            fetchStandings()
+        }
+    }, [lastUpdate, fetchStandings])
+    
+    useEffect(() => {
+        const interval = setInterval(fetchStandings, 60 * 1000) // Poll every 60 seconds
+        return () => clearInterval(interval)
+    }, [fetchStandings])
 
     if (loading) return <div className="text-[#37003c] p-4">Loading standings...</div>
     if (error)   return <div className="text-[#37003c]" p-4>Error: {error}</div>

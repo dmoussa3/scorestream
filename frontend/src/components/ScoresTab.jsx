@@ -1,14 +1,16 @@
-import { usePoll } from '../hooks/usePoll'
 import { useGameWatcher } from '../hooks/useGameWatcher'
 import { useNotifications } from '../hooks/useNotifications'
-import { useState } from 'react'
+import { use, useCallback, useEffect, useState } from 'react'
 import { useSubscriptions } from '../hooks/useSubscriptions'
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
 const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
 
-export default function ScoresTab({ onSelectGame }) {
-    const { data: games, loading, error } = usePoll('/games', 15000)
+export default function ScoresTab({ onSelectGame, lastUpdate }) {
+    const [games, setGames] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState(null)
+    
     const [notificationsEnabled, setNotificationsEnabled] = useState(Notification.permission === 'granted')
     const { notify } = useNotifications()
     const { subscriptions, toggle, isSubscribed } = useSubscriptions()
@@ -17,6 +19,32 @@ export default function ScoresTab({ onSelectGame }) {
     const isActive = notificationsEnabled && !isBlocked
 
     const conditionallyEnableNotifications = (...args) => { if (isActive) notify(...args) }
+
+    const fetchGames = useCallback(async () => {
+        try {
+            const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/games`)
+            const data = await response.json()
+            setGames(data)
+            setLoading(false)
+        } catch (err) {
+            setError(err.message)
+        }
+    }, [])
+
+    useEffect(() => {
+        fetchGames()
+    }, [fetchGames])
+
+    useEffect(() => {
+        if (lastUpdate?.type === 'games' || lastUpdate?.type === 'goals') {
+            fetchGames()
+        }
+    }, [lastUpdate, fetchGames])
+
+    useEffect(() => {
+        const interval = setInterval(fetchGames, 60 * 1000) // Poll every 60 seconds
+        return () => clearInterval(interval)
+    }, [fetchGames])
 
     useGameWatcher(games, conditionallyEnableNotifications, subscriptions)
 

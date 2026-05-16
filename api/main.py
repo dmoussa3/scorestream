@@ -13,7 +13,7 @@ from psycopg2 import pool
 import psycopg2.extras
 import redis
 
-from fastapi import FastAPI, HTTPException, Path, Query, Request
+from fastapi import FastAPI, HTTPException, Path, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -25,6 +25,9 @@ from datetime import datetime, timedelta, timezone
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+
+import asyncio
+import redis.asyncio as aioredis
 
 # ── Config ───────────────────────────────────────────────────────────
 DB_CONFIG = {
@@ -39,6 +42,33 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
 cache = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+
+class ConnectionManager:
+    def __init__(self):
+        self.active: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active.append(websocket)
+        print(f"[ws] Client connected — {len(self.active)} total")
+
+    def disconnect(self, websocket: WebSocket):
+        self.active.remove(websocket)
+        print(f"[ws] Client disconnected — {len(self.active)} total")
+
+    async def broadcast(self, message:str):
+        disconnected = []
+
+        for ws in self.active:
+            try:
+                await ws.send_text(message)
+            except Exception:
+                disconnected.append(ws)
+
+        for ws in disconnected:
+            self.active.remove(ws)
+
+manager = ConnectionManager()
 
 # ── DB helper ────────────────────────────────────────────────────────
 _connection_pool = None
@@ -66,9 +96,11 @@ def release_db(conn):
 # ── App ──────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[api] ScoreStream API starting up")
+    task = asyncio.create_task(redis_subscribe())
+    print("[api] WebSocket Redis server starting up")
     yield
-    print("[api] ScoreStream API shutting down")
+    task.cancel()
+    print("[api] WebSocket Redis server shutting down")
 
 app = FastAPI(
     title="ScoreStream API",
@@ -106,6 +138,19 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
+async def redis_subscribe():
+    redis = aioredis.Redis(host=os.getenv("REDIS_HOST", "redis"), port=6379, decode_responses=True)
+
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("scorestream.updates")
+    print("[ws] Redis Subscriber started, listening for updates...")
+
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+
+        await manager.broadcast(message["data"])
+
 def get_ttl(has_live: bool):
     return 10 if has_live else 30
 
@@ -118,6 +163,15 @@ def root():
         "version": "1.0.0",
         "endpoints": ["/games", "/games/{game_id}/stats", "/standings", "/standings/{top_n}", "/health", "/health/pipeline"],
     }
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # Keep connection open
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
 ## ── Health Checks ───────────────────────────────────────────────────
 
