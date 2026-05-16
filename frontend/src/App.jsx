@@ -69,7 +69,7 @@ export default function App() {
         {activeTab === 'match' && (
           <MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} />
         )}
-        {activeTab === 'pipeline' && <PipelineTab />}
+        {activeTab === 'pipeline' && <PipelineTab active={activeTab === 'pipeline'} />}
       </main>
 
     </div>

@@ -46,13 +46,10 @@ services:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
-    command: |
-      "
-      echo 'Creating Kafka topics...'
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic epl.live.scores --partitions 1 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic epl.standings --partitions 1 --replication-factor 1
-      echo 'Topics created.'
-      "
+    command: >
+      "kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic epl.live.scores --partitions 3 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic epl.standings --partitions 1 --replication-factor 1 &&
+       echo 'Topics created.'"
     restart: "no"
 
   # ── Kafka UI (view topics/messages in browser) ──────────────────
@@ -77,7 +74,7 @@ services:
     environment:
       POSTGRES_DB: scorestream
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -112,7 +109,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       POLL_INTERVAL_SECONDS: 15
       PLAYER_DATA_API_KEY: 17eb7ad52249415a860412e6436ccff9
-      DATABASE_URL: postgresql://admin:password@postgres:5432/scorestream
+      DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/scorestream
     restart: unless-stopped
 
   # ── Spark Streaming (processes data [games/goals] from Kafka) ──────────────────
@@ -128,7 +125,7 @@ services:
         condition: service_completed_successfully
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      DATABASE_URL: postgresql://admin:password@postgres:5432/scorestream
+      DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/scorestream
     volumes:
       - ./checkpoints:/app/checkpoints
     restart: unless-stopped
@@ -145,11 +142,13 @@ services:
     ports:
       - "8000:8000"
     environment:
+      DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/scorestream
       DB_HOST: postgres
       DB_NAME: scorestream
       DB_USER: admin
-      DB_PASSWORD: password
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_HOST: redis
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     restart: unless-stopped
 
   # ── Airflow (for scheduling/monitoring Spark jobs) ─────
@@ -160,7 +159,7 @@ services:
         condition: service_healthy
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:password@postgres:5432/scorestream
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:${POSTGRES_PASSWORD}@postgres:5432/scorestream
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__WEBSERVER__SECRET_KEY: 'scorestream'
@@ -177,7 +176,7 @@ services:
       - "8081:8080"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:password@postgres:5432/scorestream
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:${POSTGRES_PASSWORD}@postgres:5432/scorestream
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__WEBSERVER__SECRET_KEY: 'scorestream'

@@ -51,8 +51,18 @@ def create_producer(retries: int = 10, delay: int = 5) -> KafkaProducer:
 
 
 # ── ESPN helpers ─────────────────────────────────────────────────────
+poll_count = 0
+
 def fetch_scoreboard() -> list[dict]:
     """Return list of raw game objects from ESPN scoreboard."""
+    global poll_count
+    poll_count += 1
+
+    dates = [0,1]
+
+    if poll_count % 10 == 0:
+        dates.append(-1)
+
     events = []
 
     for day_offset in [-1, 0, 1]:  # fetch yesterday's and tomorrow's games to catch late updates

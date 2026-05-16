@@ -53,8 +53,8 @@ function StatusCard({ title, status, metrics }) {
     )
 }
 
-export default function PipelineTab() {
-    const { data, loading, error } = usePoll('/health/pipeline', 60000)
+export default function PipelineTab({active}) {
+    const { data, loading, error } = usePoll('/health/pipeline', 60000, active)
 
     if (loading) return <div className="text-[#37003c] p-4">Loading pipeline status...</div>
     if (error)   return <div className="text-[#37003c] p-4">Error loading pipeline health: {error}</div>

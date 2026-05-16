@@ -106,7 +106,7 @@ export default function MatchesTab({ gameId, onBack }) {
             </button>
 
             {/* Match header card */}
-            <div className="bg-[#2d0032] border border-purple-800 rounded-lg p-8">
+            <div className="bg-[#2d0032] border border-purple-800 rounded-lg p-6">
 
                 {/* Status */}
                 <div className="text-center text-xs text-purple-400 mb-4 uppercase tracking-wider">
@@ -114,12 +114,12 @@ export default function MatchesTab({ gameId, onBack }) {
                 </div>
 
                 {/* Score row */}
-                <div className="flex items-start justify-center">
+                <div className="grid grid-cols-3 items-center gap-4">
 
-                  {/* Home team + scorers */}
-                    <div className="w-64 text-left">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="text-xl text-center font-bold text-white mb-2 mr-2">
+                  {/* Home team */}
+                    <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-3">
+                            <div className="text-2xl font-bold text-white text-center">
                                 {game.home_team_name || game.home_team}
                             </div>
                             <img
@@ -129,36 +129,45 @@ export default function MatchesTab({ gameId, onBack }) {
                                 onError={(e) => {e.target.style.display = 'none'}}
                             />
                         </div>
-                        <div className="space-y-1 min-h-0">
-                            {homeGoals.map((g, i) => (
-                                <div key={i} className="text-xs text-purple-300">
-                                    {GOAL_ICON[g.goal_type] || ' ⚽ '} {g.player_name} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
-                                </div>
-                            ))}
-                        </div>
                     </div>
 
                     {/* Score */}
-                    <div className="mx-8 text-center">
+                    <div className="text-center">
                         <div className="text-5xl font-bold text-white tracking-tight">
                             {game.home_score} – {game.away_score}
                         </div>
                     </div>
 
-                    {/* Away team + scorers */}
-                    <div className="w-64 text-right">
-                        <div className="flex items-center gap-7 justify-end mb-1">
+                    {/* Away team */}
+                    <div className="flex flex-col items-start">
+                        <div className="flex items-center gap-3">
                             <img
                                 src={`https://a.espncdn.com/i/teamlogos/soccer/500/${game.away_id}.png`}
                                 alt={game.away_team_name || game.away_team}
                                 className="w-16 h-16 object-contain"
                                 onError={(e) => {e.target.style.display = 'none'}}
                             />
-                            <div className="text-xl text-center font-bold text-white mb-2">
+                            <div className="text-2xl font-bold text-white text-center">
                                 {game.away_team_name || game.away_team}
                             </div>
                         </div>
-                        <div className="space-y-1 min-h-0">
+                    </div>
+
+                </div>
+
+                {(homeGoals.length > 0 || awayGoals.length > 0) && (
+                    <div className="grid grid-cols-3 gap-4 pt-4 text-center">
+                        <div className="space-y-1">
+                            {homeGoals.map((g, i) => (
+                                <div key={i} className="text-xs text-purple-300">
+                                    {GOAL_ICON[g.goal_type] || ' ⚽ '} {g.player_name} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div />
+
+                        <div className="space-y-1">
                             {awayGoals.map((g, i) => (
                                 <div key={i} className="text-xs text-purple-300">
                                     {GOAL_ICON[g.goal_type] || ' ⚽ '} {g.player_name} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
@@ -166,8 +175,7 @@ export default function MatchesTab({ gameId, onBack }) {
                             ))}
                         </div>
                     </div>
-
-                </div>
+                )}
             </div>
 
             {/* Goal timeline */}

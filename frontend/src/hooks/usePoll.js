@@ -2,14 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000'
 
-export function usePoll(path, intervalMs = 30000) {
+export function usePoll(path, intervalMs = 30000, active = true) {
     const [data, setData] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
     const intervalRef = useRef(null)
 
     useEffect(() => {
-        if (!path) {
+        if (!path || !active) {
             setData(null)
             setLoading(false)
             return
@@ -42,7 +42,7 @@ export function usePoll(path, intervalMs = 30000) {
             cancelled = true
             clearInterval(intervalRef.current)
         }
-    }, [path, intervalMs])
+    }, [path, intervalMs, active])
 
     return { data, loading, error }
 }

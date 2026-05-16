@@ -6,17 +6,25 @@ Serves live scores, player stats, and standings from PostgreSQL with Redis cachi
 import json
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import psycopg2
+from psycopg2 import pool
 import psycopg2.extras
 import redis
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from kafka import KafkaAdminClient, KafkaConsumer
 from kafka.structs import TopicPartition
 
 from datetime import datetime, timedelta, timezone
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # ── Config ───────────────────────────────────────────────────────────
 DB_CONFIG = {
@@ -33,8 +41,27 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 cache = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 # ── DB helper ────────────────────────────────────────────────────────
+_connection_pool = None
+
+def get_db_pool():
+    global _connection_pool
+    if _connection_pool is None:
+        _connection_pool = pool.SimpleConnectionPool(
+            minconn=1,
+            maxconn=10,
+            dsn=os.getenv("DATABASE_URL")
+        )
+    return _connection_pool
+
 def get_db():
-    return psycopg2.connect(**DB_CONFIG, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = get_db_pool().getconn()
+    return conn
+
+def get_db_cursor(conn):
+    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+def release_db(conn):
+    get_db_pool().putconn(conn)
 
 # ── App ──────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -50,12 +77,37 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+ALLOWED = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.middleware("http")
+async def limit_size(request: Request, call_next):
+    if request.headers.get('content-length'):
+        if int(request.headers['content-length']) > 1_000_000:  # 1 MB limit
+            return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    return await call_next(request)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+def get_ttl(has_live: bool):
+    return 10 if has_live else 30
 
 # ── Routes ───────────────────────────────────────────────────────────
 
@@ -75,7 +127,7 @@ def health():
     status = {"api": "ok", "db": "unknown", "cache": "unknown"}
     try:
         conn = get_db()
-        conn.close()
+        release_db(conn)
         status["db"] = "ok"
     except Exception as e:
         status["db"] = str(e)
@@ -87,14 +139,15 @@ def health():
     return status
 
 @app.get("/health/pipeline")
-def health_pipeline():
+@limiter.limit("10/minute")
+def health_pipeline(request: Request):
     """Check that the data pipeline is functioning correctly."""
     cached = cache.get("pipeline_health")
     if cached:
         return json.loads(cached)
 
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_db_cursor(conn)
 
     status = {"airflow": {}, "kafka": {}, "postgres": {}, "producer": {}}
 
@@ -171,7 +224,7 @@ def health_pipeline():
     except Exception as e:
         status["producer"] = {"status": str(e)}
     
-    conn.close()
+    release_db(conn)
     cache.setex("pipeline_health", 30, json.dumps(status, default=str))  # cache for 30s
     return status
 
@@ -192,11 +245,11 @@ def get_status(last_updated, threshold_minutes):
 ## ── Games ───────────────────────────────────────────────────────────
 
 @app.get("/games")
-def get_games(status: str | None = None):
+@limiter.limit("30/minute")
+def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$")):
     """
     Return all games, optionally filtered by status.
-    ?status=STATUS_IN_PROGRESS  — live games only
-    ?status=STATUS_FINAL        — completed games
+    
     """
     cache_key = f"games:{status or 'all'}"
     cached = cache.get(cache_key)
@@ -204,7 +257,7 @@ def get_games(status: str | None = None):
         return json.loads(cached)
 
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_db_cursor(conn)
 
     if status:
         cursor.execute("""
@@ -212,18 +265,21 @@ def get_games(status: str | None = None):
                    status, period, clock, start_time, last_updated
             FROM games
             WHERE status = %s
-            ORDER BY last_updated DESC
+            ORDER BY last_updated DESC, start_time ASC
         """, (status,))
     else:
         cursor.execute("""
             SELECT game_id, home_team_name, home_id, home_team, away_team_name, away_id, away_team, home_score, away_score,
                    status, period, clock, start_time, last_updated
             FROM games
-            ORDER BY last_updated DESC
+            ORDER BY last_updated DESC, start_time ASC
         """)
 
     rows = [dict(r) for r in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
+
+    has_live = any(r["status"] in ("STATUS_IN_PROGRESS", "STATUS_FIRST_HALF", "STATUS_SECOND_HALF") for r in rows)
+    ttl = get_ttl(has_live)
 
     # Serialize datetime objects
     for row in rows:
@@ -231,18 +287,18 @@ def get_games(status: str | None = None):
             if hasattr(v, "isoformat"):
                 row[k] = v.isoformat()
 
-    cache.setex(cache_key, 15, json.dumps(rows))  # cache 15s
+    cache.setex(cache_key, ttl, json.dumps(rows))  # cache 15s
     return rows
 
 
 @app.get("/games/{game_id}")
-def get_game(game_id: str):
+def get_game(game_id: str = Path(..., min_length=1, max_length=50, regex="[0-9]+$")):
     """Return a single game by ID."""
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_db_cursor(conn)
     cursor.execute("SELECT * FROM games WHERE game_id = %s", (game_id,))
     row = cursor.fetchone()
-    conn.close()
+    release_db(conn)
 
     if not row:
         raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
@@ -263,7 +319,7 @@ def get_game_stats(game_id: str):
         return json.loads(cached)
 
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_db_cursor(conn)
     cursor.execute("""
         SELECT player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal
         FROM goals
@@ -271,7 +327,7 @@ def get_game_stats(game_id: str):
         ORDER BY seconds ASC
     """, (game_id,))
     rows = [dict(r) for r in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
 
     if not rows:
         return []
@@ -293,7 +349,7 @@ def get_standings(top_n: int | None = None):
         return json.loads(cached)
 
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_db_cursor(conn)
 
     if top_n is not None:
         cursor.execute("""
@@ -310,7 +366,7 @@ def get_standings(top_n: int | None = None):
         """)
 
     rows = [dict(r) for r in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
 
     for row in rows:
         for k, v in row.items():
