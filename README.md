@@ -1,40 +1,55 @@
 # ScoreStream
 
-A real-time EPL data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose.
+A real-time european football data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose.
 
-ScoreStream ingests live Premier League match data from the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching. A parallel Airflow batch layer handles scheduled standings refreshes and daily Parquet archiving.
+ScoreStream ingests live match data from **the 5 major European leagues** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel Airflow batch layer handles scheduled standings refreshes and daily Parquet archiving across all leagues.
+
+---
+
+## Supported Leagues
+
+| League | ESPN Code | Teams |
+|---|---|---|
+| Premier League | eng.1 | 20 |
+| La Liga | esp.1 | 20 |
+| Bundesliga | ger.1 | 18 |
+| Serie A | ita.1 | 20 |
+| Ligue 1 | fra.1 | 18 |
+
+Additional leagues can be added by appending to the `LEAGUES` dict in `espn_producer.py` — no other changes required.
 
 ---
 
 ## Architecture
 
 ```
-ESPN Public API (polled every 30s)
+ESPN Public API (polled every 30s — 5 leagues)
         │
         ▼
 Python Producer
         │  publishes to Kafka topics
         ▼
 ┌─────────────────────────────────────┐
-│  epl.live.scores                    │  game state + goal events
-│  epl.standings                      │  full league table snapshots
+│  sports.live.scores                 │  game state + goal events (all leagues)
+│  sports.standings                   │  full league table snapshots
 └─────────────────────────────────────┘
         │
         ▼
 PySpark Structured Streaming
-  ├── process_games    →  games table       (upsert, every 10s)
-  ├── process_goals    →  goals table       (deduplication via composite key)
-  └── process_standings → standings table  (delete-replace, every 30s)
+  ├── process_games     →  games table       (upsert, every 10s)
+  ├── process_goals     →  goals table       (deduplication via composite key)
+  └── process_standings →  standings table   (upsert per league, every 30s)
         │
         ▼
-PostgreSQL ←→ Redis (15s cache)
-        │
+PostgreSQL ←→ Redis (dynamic TTL)
+        │          │
+        │          └──▶ WebSocket push → React frontend
         ▼
-FastAPI REST API
+FastAPI REST API + WebSocket
 
 Airflow (parallel batch layer)
-  ├── epl_standings_refresh  →  runs every 30 min, redundancy for Spark stream
-  └── epl_daily_archive      →  runs at midnight, writes Parquet snapshots to disk
+  ├── standings_refresh  →  runs every 30 min, all 5 leagues
+  └── epl_daily_archive  →  runs at midnight, writes Parquet snapshots
 ```
 
 ---
@@ -70,27 +85,32 @@ Airflow (parallel batch layer)
 ## API Endpoints
 
 ```
+GET /                           — Service info
 GET /health                     — DB and cache connectivity check
-GET /health/pipeline            - Airflow, Producer, Postgres, Kafka health connection check
-GET /games                      — All EPL games, filterable by ?status=
+GET /health/pipeline            — Full pipeline component status
+GET /games                      — All games, filterable by ?status= and ?league=
 GET /games/{game_id}            — Single game by ID
 GET /games/{game_id}/stats      — Goal events for a specific game
-GET /standings                  — Full league table ordered by points
+GET /standings                  — League table, filterable by ?league=
+GET /leagues                    — List of all leagues with data
+WS  /ws                         — WebSocket for real-time push updates
 ```
 
 ---
 
 ## Dashboard
 
-A React single-page application serving four views:
+A React single-page application with four views and a league selector:
 
-**Live Scores** — EPL match cards showing live scores, match status, and kickoff times. Updates every 30 seconds. Click any card to view match details.
+**League Selector** — Switch between Premier League, La Liga, Bundesliga, Serie A, and Ligue 1. Scores and standings update automatically when switching leagues.
 
-**League Table** — Full EPL standings with position, points, goal difference, and zone indicators. Champions League positions marked in green, Europa League in purple, relegation in red.
+**Live Scores** — Match cards showing live scores, status, team logos, and kickoff times. Updates in real time via WebSocket push — no polling. Click any card to view match details.
 
-**Match Detail** — Per-game view showing the score header with goal scorers, a visual goal timeline with goals plotted at their exact minute, and a chronological goal event list. For live games the timeline acts as a progress bar with a real-time clock that interpolates between API updates.
+**League Table** — Full standings with position, points, goal difference, and zone indicators. Champions League positions marked in green, Europa League in purple, relegation in red.
 
-**Pipeline Health** — Internal dashboard showing the status of every pipeline component — ESPN producer last poll time, Kafka topic message counts, PostgreSQL row counts per table, and Airflow DAG last run status. Components are color coded: green for healthy, yellow for stale, red for error.
+**Match Detail** — Per-game view with score header, team logos, goal scorers, and a visual goal timeline. For live games the timeline acts as a progress bar with a real-time interpolated clock between API updates.
+
+**Pipeline Health** — Internal dashboard showing status of every pipeline component — producer last poll, Kafka topic message counts, PostgreSQL row counts per table, and Airflow DAG last run status.
 
 Open the dashboard at `http://localhost:3000` after starting the stack.
 
@@ -193,6 +213,12 @@ Building this project involved working through several non-trivial distributed s
 
 **Logo contrast on dark backgrounds** — ESPN team logos for light-colored clubs (Tottenham, etc.) are invisible on dark card backgrounds. Fixed by wrapping every logo in a white circular container so all logos have guaranteed contrast regardless of their color scheme.
 
+**Multi-league pipeline scaling** — Extending from a single EPL feed to five concurrent leagues required generalizing every layer — the producer loops over a `LEAGUES` dict, Kafka topics were renamed from `epl.*` to `sports.*`, the database schema added a `league` column with a composite primary key on `(team_id, league)` for standings, and the API added `?league=` filter parameters throughout. The architecture required no structural changes — only parameterization.
+
+**WebSocket real-time push** — Replaced frontend polling with a Redis pub/sub → WebSocket push architecture. Spark publishes a lightweight notification to Redis after each batch commit. FastAPI's async Redis subscriber receives the notification and broadcasts to all connected WebSocket clients via the `ConnectionManager`. The frontend triggers a targeted refetch on receiving the push rather than on a fixed interval, reducing API load during quiet periods while ensuring near-instant updates during live matches.
+
+**datetime JSON serialization** — PostgreSQL returns Python `datetime` objects which are not JSON serializable by default. Added a serialization loop across all endpoints that converts any field with an `isoformat` method before caching or returning. The bug surfaced only for newly cached endpoints since existing cached responses returned the pre-serialized string values.
+
 ---
 
 ## Project Structure
@@ -200,40 +226,45 @@ Building this project involved working through several non-trivial distributed s
 ```
 scorestream/
 ├── docker-compose.yml
+├── restart.sh                     # safe restart script — clears checkpoints
 ├── sql/
-│   └── init.sql                   # DB schema, auto-runs on first postgres start
+│   └── init.sql
 ├── producer/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── espn_producer.py           # ESPN API → Kafka
+│   └── espn_producer.py           # ESPN API → Kafka (5 leagues)
 ├── spark/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── streaming_job.py           # PySpark Structured Streaming consumer
 ├── dags/
-│   ├── epl_standings_refresh.py   # Airflow DAG — 30 min standings refresh
+│   ├── standings_refresh.py       # Airflow DAG — 30 min standings refresh (all leagues)
 │   └── epl_daily_archive.py       # Airflow DAG — nightly Parquet archive
 ├── api/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── main.py                    # FastAPI endpoints
+│   └── main.py                    # FastAPI + WebSocket endpoints
 ├── frontend/
 │   ├── Dockerfile
 │   ├── package.json
 │   ├── public/
 │   │   └── index.html
 │   └── src/
-│       ├── App.jsx
+│       ├── App.jsx                # League selector, WebSocket indicator
 │       ├── index.js
 │       ├── hooks/
-│       │   └── usePoll.js
+│       │   ├── usePoll.js         # Polling hook (MatchesTab, PipelineTab)
+│       │   ├── useWebSocket.js    # WebSocket connection with auto-reconnect
+│       │   ├── useNotifications.js
+│       │   ├── useSubscriptions.js
+│       │   └── useGameWatcher.js
 │       └── components/
-│           ├── ScoresTab.jsx
-│           ├── StandingsTab.jsx
-│           ├── MatchesTab.jsx
-│           └── PipelineTab.jsx
-├── checkpoints/                   # Spark offset tracking (gitignored)
-├── archive/                       # Parquet snapshots (gitignored)
+│           ├── ScoresTab.jsx      # WebSocket-triggered refetch + league filter
+│           ├── StandingsTab.jsx   # WebSocket-triggered refetch + league filter
+│           ├── MatchesTab.jsx     # usePoll at 15s
+│           └── PipelineTab.jsx    # usePoll at 60s
+├── checkpoints/
+├── archive/
 └── README.md
 ```
 
@@ -245,7 +276,10 @@ scorestream/
 - Replace local Parquet storage with S3
 - Replace local Spark with AWS Glue managed jobs
 - Deploy FastAPI on EC2 behind an Application Load Balancer
+- Deploy frontend on S3 + CloudFront for global CDN delivery
 - Add CloudWatch monitoring and alerting
+- Add Champions League and Europa League support
+- Add historical analytics tab using archived Parquet data
 
 ---
 

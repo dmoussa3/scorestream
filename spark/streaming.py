@@ -47,6 +47,7 @@ goal_schema = ArrayType(StructType()
 
 games_schema = StructType() \
     .add("game_id", StringType()) \
+    .add("league", StringType()) \
     .add("home_team", StringType()) \
     .add("away_team", StringType()) \
     .add("home_team_name", StringType()) \
@@ -66,7 +67,7 @@ games_schema = StructType() \
 raw_stream = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", KAFKA_SERVERS) \
-    .option("subscribe", "epl.live.scores") \
+    .option("subscribe", "sports.live.scores") \
     .option("startingOffsets", "earliest") \
     .option("failOnDataLoss", "false") \
     .load() \
@@ -103,9 +104,10 @@ def process_games(df_batch, batch_id):
         rows = df_batch.collect()
         for row in rows:
             cursor.execute("""
-                INSERT INTO games (game_id, home_team, home_team_name, home_id, away_team, away_team_name, away_id, home_score, away_score, period, clock, status, status_detail, start_time, last_updated)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                INSERT INTO games (game_id, league, home_team, home_team_name, home_id, away_team, away_team_name, away_id, home_score, away_score, period, clock, status, status_detail, start_time, last_updated)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (game_id) DO UPDATE SET
+                    league = EXCLUDED.league,
                     home_score = EXCLUDED.home_score,
                     away_score = EXCLUDED.away_score,
                     status = EXCLUDED.status,
@@ -115,6 +117,7 @@ def process_games(df_batch, batch_id):
                     last_updated = NOW()
             """, (
                 row.game_id,
+                row.league,
                 row.home_team,
                 row.home_team_name,
                 row.home_id,

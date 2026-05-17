@@ -3,6 +3,7 @@
 
 -- ── Games ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS games (
+    league          VARCHAR DEFAULT 'epl',
     game_id         VARCHAR PRIMARY KEY,
     home_team       VARCHAR NOT NULL,
     home_team_name  VARCHAR NOT NULL,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS games (
 CREATE TABLE IF NOT EXISTS goals (
     id              SERIAL PRIMARY KEY,
     game_id         VARCHAR REFERENCES games(game_id) ON DELETE CASCADE,
+    league          VARCHAR DEFAULT 'epl',
     player_id       VARCHAR NOT NULL,
     player_name     VARCHAR NOT NULL,
     team_id         VARCHAR NOT NULL,
@@ -39,7 +41,8 @@ CREATE TABLE IF NOT EXISTS goals (
 
 -- ── Standings ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS standings (
-    team_id         VARCHAR PRIMARY KEY,
+    team_id         VARCHAR NOT NULL,
+    league          VARCHAR NOT NULL DEFAULT 'epl',
     team_name       VARCHAR NOT NULL,
     wins            INT DEFAULT 0,
     losses          INT DEFAULT 0,
@@ -51,7 +54,9 @@ CREATE TABLE IF NOT EXISTS standings (
     matches_played  INT DEFAULT 0,
     rank            INT DEFAULT 0,
     deductions      INT DEFAULT 0,
-    last_updated    TIMESTAMP DEFAULT NOW()
+    last_updated    TIMESTAMP DEFAULT NOW(),
+
+    PRIMARY KEY (team_id, league)
 );
 
 -- ── Metadata ────────────────────────────────────────────────────────
@@ -64,7 +69,9 @@ CREATE TABLE IF NOT EXISTS pipeline_metadata (
 
 -- ── Indexes ─────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_goals_game ON goals(game_id);
-CREATE INDEX IF NOT EXISTS idx_games_status       ON games(status);
+CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
+CREATE INDEX IF NOT EXISTS idx_games_league ON games(league);
+CREATE INDEX IF NOT EXISTS idx_goals_league ON goals(league);
 
 -- ── Seed message ────────────────────────────────────────────────────
 DO $$

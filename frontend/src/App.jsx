@@ -12,6 +12,15 @@ export default function App() {
 	const [apiStatus, setApiStatus] = useState('checking...')
 	const [selectedGameId, setSelectedGameId] = useState(null)
 	const [lastUpdate, setLastUpdate] = useState(null)
+	const [selectedLeague, setSelectedLeague] = useState('epl')
+	const [availableLeagues, setAvailableLeagues] = useState(['epl'])
+
+	useEffect(() => {
+		fetch(`${API}/leagues`)
+		.then(res => res.json())
+		.then(setAvailableLeagues)
+		.catch(() => {})
+	}, [])
 
 	const handleWebSocketMessage = useCallback((message) => {
 		setLastUpdate(message)
@@ -38,7 +47,7 @@ export default function App() {
 
 			{/* Header */}
 			<header className="bg-[#2d0032] border-b border-[#00ff85] px-6 py-4 flex items-center justify-center relative">
-			<h1 className="text-xl font-bold text-white">⚽ ScoreStream 🇬🇧</h1>
+			<h1 className="text-xl font-bold text-white">⚽ ScoreStream ⚽</h1>
 
 			<div className='absolute right-6 flex items-center gap-2'>
 				{/* WebSocket connection indicator */}
@@ -61,30 +70,52 @@ export default function App() {
 
 			{/* Tab navigation */}
 			<nav className="bg-[#2d0032] border-b border-purple-900 px-6">
-			<div className="flex gap-1 justify-center">
-				{tabs.map(tab => (
-				<button
-					key={tab}
-					onClick={() => setActiveTab(tab)}
-					className={`px-4 py-3 text-sm font-medium capitalize border-b-2 transition-colors ${
-					activeTab === tab
-						? 'border-[#00ff85] text-[#00ff85]'
-						: 'border-transparent text-purple-300 hover:text-white'
-					}`}
-				>
-					{tab === 'match' ? 'Match Detail' :
-					tab === 'pipeline' ? 'Pipeline Health' : tab}
-				</button>
-				))}
-			</div>
+				<div className="flex flex-col items-center gap-1 py-1">
+
+					<div className='flex gap-1'>
+						{tabs.map(tab => (
+						<button
+							key={tab}
+							onClick={() => setActiveTab(tab)}
+							className={`px-4 py-3 text-sm font-medium capitalize border-b-2 transition-colors ${
+							activeTab === tab
+								? 'border-[#00ff85] text-[#00ff85]'
+								: 'border-transparent text-purple-300 hover:text-white'
+							}`}
+						>
+							{tab === 'match' ? 'Match Detail' :
+							tab === 'pipeline' ? 'Pipeline Health' : tab}
+						</button>
+						))}
+					</div>
+
+					{/* League selector - only show on scores and standings tab */}
+					{(activeTab === 'scores' || activeTab === 'standings') && (
+						<div className='flex items-center gap-2'>
+							{availableLeagues.map(l => (
+								<button
+									key={l}
+									onClick={() => setSelectedLeague(l)}
+									className={`text-xs px-3 py-1 rounded-full font-medium capitalize transition-colors ${
+										selectedLeague === l
+											? 'bg-[#00ff85] text-[#37003c]'
+											: 'bg-purple-900 text-purple-300 hover:text-white'
+									}`}
+								>
+									{l}
+								</button>
+							))}
+						</div>
+					)}
+				</div>
 			</nav>
 
 			{/* Tab content */}
 			<main className="p-6 bg-white">
 			{activeTab === 'scores' && (
-				<ScoresTab onSelectGame={handleSelectedGame} lastUpdate={lastUpdate} />
+				<ScoresTab onSelectGame={handleSelectedGame} lastUpdate={lastUpdate} league={selectedLeague} />
 			)}
-			{activeTab === 'standings' && <StandingsTab lastUpdate={lastUpdate} />}
+			{activeTab === 'standings' && <StandingsTab lastUpdate={lastUpdate} league={selectedLeague} />}
 			{activeTab === 'match' && (
 				<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} />
 			)}

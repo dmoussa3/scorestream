@@ -10,21 +10,22 @@ const rowColors = (position) => {
     return 'border-b-2 border-purple-800'; // default row style
 };
 
-export default function StandingsTab({ lastUpdate}) {
+export default function StandingsTab({ lastUpdate, league = 'epl' }) {
     const [standings, setStandings] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
 
     const fetchStandings = useCallback(async () => {
         try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/standings`)
+            const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/standings?league=${league}`)
             const data = await response.json()
             setStandings(data)
             setLoading(false)
         } catch (err) {
             setError(err.message)
+            setLoading(false)
         }
-    }, [])
+    }, [league])
 
     useEffect(() => {
         fetchStandings()

@@ -6,7 +6,7 @@ import { useSubscriptions } from '../hooks/useSubscriptions'
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
 const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
 
-export default function ScoresTab({ onSelectGame, lastUpdate }) {
+export default function ScoresTab({ onSelectGame, lastUpdate, league }) {
     const [games, setGames] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
@@ -22,14 +22,17 @@ export default function ScoresTab({ onSelectGame, lastUpdate }) {
 
     const fetchGames = useCallback(async () => {
         try {
-            const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/games`)
-            const data = await response.json()
+            const params = new URLSearchParams()
+            if (league) params.append('league', league)
+            const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/games?${params}`)
+            const data = await res.json()
             setGames(data)
             setLoading(false)
         } catch (err) {
-            setError(err.message)
+            setError(err.message || 'Failed to load matches')
+            setLoading(false)
         }
-    }, [])
+    }, [league])
 
     useEffect(() => {
         fetchGames()

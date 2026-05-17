@@ -16,19 +16,26 @@ from kafka.errors import NoBrokersAvailable
 # ── Config ──────────────────────────────────────────────────────────
 KAFKA_SERVERS      = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 POLL_INTERVAL      = int(os.getenv("POLL_INTERVAL_SECONDS", 15))
-TOPIC_SCORES       = "epl.live.scores"
-TOPIC_STANDINGS    = "epl.standings"
+TOPIC_SCORES       = "sports.live.scores"
+TOPIC_STANDINGS    = "sports.standings"
 
-ESPN_SCOREBOARD    = "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
-ESPN_STANDINGS     = "https://site.api.espn.com/apis/v2/sports/soccer/eng.1/standings"
+ESPN_BASE    = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+ESPN_STANDINGS     = "https://site.api.espn.com/apis/v2/sports/soccer"
 
 HEADERS = {"User-Agent": "ScoreStream/1.0"}
+
+LEAGUES = {
+    "epl": "eng.1",
+    "laliga": "esp.1",
+    "seriea": "ita.1",
+    "bundesliga": "ger.1",
+    "ligue1": "fra.1",
+}
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:password@postgres:5432/scorestream")
 
 def get_db():
     return psycopg2.connect(DATABASE_URL)
-
 
 # ── Kafka setup ─────────────────────────────────────────────────────
 def create_producer(retries: int = 10, delay: int = 5) -> KafkaProducer:
@@ -51,23 +58,14 @@ def create_producer(retries: int = 10, delay: int = 5) -> KafkaProducer:
 
 
 # ── ESPN helpers ─────────────────────────────────────────────────────
-poll_count = 0
 
-def fetch_scoreboard() -> list[dict]:
+def fetch_scoreboard(league: str) -> list[dict]:
     """Return list of raw game objects from ESPN scoreboard."""
-    global poll_count
-    poll_count += 1
-
-    dates = [0,1]
-
-    if poll_count % 10 == 0:
-        dates.append(-1)
-
     events = []
 
     for day_offset in [-1, 0, 1]:  # fetch yesterday's and tomorrow's games to catch late updates
         date_str = (datetime.now() + timedelta(days=day_offset)).strftime("%Y%m%d")
-        url = ESPN_SCOREBOARD + f"?dates={date_str}"
+        url = f"{ESPN_BASE}/{league}/scoreboard?dates={date_str}"
 
         try:
             resp = requests.get(url, headers=HEADERS, timeout=10)
@@ -75,7 +73,7 @@ def fetch_scoreboard() -> list[dict]:
             day_events = resp.json().get("events", [])
             events.extend(day_events)
         except Exception as e:
-            print(f"[producer] Scoreboard fetch error for {date_str}: {e}")
+            print(f"[producer] Scoreboard fetch error for {league} for {date_str}: {e}")
     
     seen = set()
     unique_events = []
@@ -84,13 +82,13 @@ def fetch_scoreboard() -> list[dict]:
             unique_events.append(event)
             seen.add(event["id"])
 
-    print(f"[producer] Total unique games fetched across 3 days: {len(unique_events)}")
     return unique_events
 
-def fetch_standings() -> list[dict]:
+def fetch_standings(league: str) -> list[dict]:
     """Return raw standings entries from ESPN."""
     try:
-        resp = requests.get(ESPN_STANDINGS, headers=HEADERS, timeout=10)
+        url = f"{ESPN_STANDINGS}/{league}/standings"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
         resp.raise_for_status()
         entries = []
 
@@ -104,8 +102,9 @@ def fetch_standings() -> list[dict]:
         return []
 
 
-def parse_game(game: dict) -> dict | None:
+def parse_game(game: dict, league: str) -> dict | None:
     """Extract a clean game event from a raw ESPN event object."""
+
     try:
         competition = game["competitions"][0]
         competitors  = competition["competitors"]
@@ -148,6 +147,7 @@ def parse_game(game: dict) -> dict | None:
 
         return {
             "game_id":    game["id"],
+            "league":     league,
             "home_team_name": home["team"]["displayName"],
             "away_team_name": away["team"]["displayName"],
             "home_team":  home["team"]["abbreviation"],
@@ -170,13 +170,14 @@ def parse_game(game: dict) -> dict | None:
         return None
 
 
-def parse_standing(entry: dict) -> dict | None:
+def parse_standing(entry: dict, league: str) -> dict | None:
     """Extract a clean standing record from a raw ESPN standings entry."""
     try:
         stats = {s["name"]: s["value"] for s in entry.get("stats", []) if "value" in s}
         team  = entry["team"]
         return {
             "team_id":   team["id"],
+            "league": league,
             "team_name": team["displayName"],
             "wins":      int(stats.get("wins", 0)),
             "draws":    int(stats.get("ties", 0)),
@@ -203,66 +204,45 @@ def run():
     conn = get_db()
     cursor = conn.cursor()
 
-    print(f"[producer] Starting — polling every {POLL_INTERVAL}s")
-    print(f"[producer] Topics: {TOPIC_SCORES}, {TOPIC_STANDINGS}\n")
-
-    print("[producer] Publishing initial standings on startup...")
-    standings = fetch_standings()
-    all_standings = []
-    
-    for entry in standings:
-        record = parse_standing(entry)
-        if record:
-            all_standings.append(record)
-    if all_standings:
-        producer.send(
-            topic=TOPIC_STANDINGS,
-            key="full_table",
-            value=all_standings,
-        )
-        producer.flush()
-        print(f"[producer] Initial standings published — {len(all_standings)} teams")
-
     while True:
         poll_count += 1
         print(f"[producer] ── Poll #{poll_count} @ {datetime.now().strftime('%H:%M:%S')} ──")
-
+        
         # ── Scores ──
-        games = fetch_scoreboard()
-        published_games = 0
-        for game in games:
-            event = parse_game(game)
-            if event:
-                producer.send(
-                    topic=TOPIC_SCORES,
-                    key=event["game_id"],
-                    value=event,
-                )
-                published_games += 1
-                print(f"  [score] {event['away_team']} {event['away_score']} "
-                      f"@ {event['home_team']} {event['home_score']} "
-                      f"— {event['status_detail']}")
 
-        if published_games == 0:
-            print("  [score] No games found (off-season or no games today)")
+        for league_name, league_id in LEAGUES.items():
+            games = fetch_scoreboard(league_id)
+            published_games = 0
+            for game in games:
+                event = parse_game(game, league_name)
+                if event:
+                    producer.send(
+                        topic=TOPIC_SCORES,
+                        key=event["game_id"],
+                        value=event,
+                    )
+                    published_games += 1
+            print(f"  [{league_name}] {published_games} games published")
 
         # ── Standings (every 3 polls to reduce API load) ──
         if poll_count % 3 == 0:
-            standings = fetch_standings()
+            for league_name, league_id in LEAGUES.items():
+                print(f"  Fetching standings for {league_name}...")
+                standings = fetch_standings(league_id)
+                all_standings = []
 
-            all_standings = []
-            for entry in standings:
-                record = parse_standing(entry)
-                if record:
-                    all_standings.append(record)
+                for entry in standings:
+                    record = parse_standing(entry, league_name)
+                    if record:
+                        all_standings.append(record)
 
-            if all_standings:
-                producer.send(
-                    topic=TOPIC_STANDINGS,
-                    key="full_table",  # overwrite entire standings with each record
-                    value=all_standings,
-                )
-                print(f"  [standings] Published {len(standings)} team records")
+                if all_standings:
+                    producer.send(
+                        topic=TOPIC_STANDINGS,
+                        key=f"{league_name}_standings",
+                        value=all_standings,
+                    )
+                    print(f"  [standings] {league_name}: Published {len(standings)} team records")
 
         producer.flush()
         print(f"  Sleeping {POLL_INTERVAL}s...\n")

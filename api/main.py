@@ -43,6 +43,7 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
 cache = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
+ALLOWED = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 class ConnectionManager:
     def __init__(self):
         self.active: list[WebSocket] = []
@@ -77,8 +78,8 @@ def get_db_pool():
     global _connection_pool
     if _connection_pool is None:
         _connection_pool = pool.SimpleConnectionPool(
-            minconn=1,
-            maxconn=10,
+            minconn=2,
+            maxconn=20,
             dsn=os.getenv("DATABASE_URL")
         )
     return _connection_pool
@@ -104,12 +105,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ScoreStream API",
-    description="Real-time EPL stats powered by Kafka + PySpark + PostgreSQL",
+    description="Real-time European football stats powered by Kafka + PySpark + PostgreSQL",
     version="1.0.0",
     lifespan=lifespan,
 )
-
-ALLOWED = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -201,86 +200,89 @@ def health_pipeline(request: Request):
         return json.loads(cached)
 
     conn = get_db()
-    cursor = get_db_cursor(conn)
 
-    status = {"airflow": {}, "kafka": {}, "postgres": {}, "producer": {}}
+    try:
+        cursor = get_db_cursor(conn)
 
-    admin = KafkaAdminClient(bootstrap_servers="kafka:29092")
-    consumer = KafkaConsumer(bootstrap_servers="kafka:29092")
-    topics = ["epl.live.scores", "epl.standings"]
+        status = {"airflow": {}, "kafka": {}, "postgres": {}, "producer": {}}
 
-    # Check Kafka topic health by getting message counts for each topic
-    for topic in topics:
+        admin = KafkaAdminClient(bootstrap_servers="kafka:29092")
+        consumer = KafkaConsumer(bootstrap_servers="kafka:29092")
+        topics = ["sports.live.scores", "sports.standings"]
+
+        # Check Kafka topic health by getting message counts for each topic
+        for topic in topics:
+            try:
+                partitions = consumer.partitions_for_topic(topic)
+                if not partitions:
+                    status["kafka"][topic] = {"message_count": 0, "status": "unknown"}
+                    continue
+                
+                tps = [TopicPartition(topic, p) for p in partitions]
+                end_offsets = consumer.end_offsets(tps)
+                total_messages = sum(end_offsets.values())
+                status["kafka"][topic] = {"message_count": total_messages, "status": "healthy"}
+            except Exception as e:
+                status["kafka"][topic] = {"message_count": 0, "status": str(e)}
+
+        consumer.close()
+        admin.close()
+
+        # Check PostgreSQL by running a simple query for each table
         try:
-            partitions = consumer.partitions_for_topic(topic)
-            if not partitions:
-                status["kafka"][topic] = {"message_count": 0, "status": "unknown"}
-                continue
+            cursor.execute("""
+                SELECT
+                    (SELECT COUNT(*) FROM games) AS games_count,
+                    (SELECT MAX(last_updated) FROM games) AS last_game_update,
+                    (SELECT COUNT(*) FROM goals) AS goals_count,
+                    (SELECT MAX(created_at) FROM goals) AS last_goal_update,
+                    (SELECT COUNT(*) FROM standings) AS standings_count,
+                    (SELECT MAX(last_updated) FROM standings) AS last_standings_update
+            """)
             
-            tps = [TopicPartition(topic, p) for p in partitions]
-            end_offsets = consumer.end_offsets(tps)
-            total_messages = sum(end_offsets.values())
-            status["kafka"][topic] = {"message_count": total_messages, "status": "healthy"}
+            stats = cursor.fetchone()
+
+            status["postgres"]["games"] = {"count": stats["games_count"], "last_updated": stats["last_game_update"].isoformat() if stats["last_game_update"] else None, "status": get_status(stats["last_game_update"], 2)}
+            status["postgres"]["goals"] = {"count": stats["goals_count"], "last_updated": stats["last_goal_update"].isoformat() if stats["last_goal_update"] else None, "status": get_status(stats["last_goal_update"], 5)}
+            status["postgres"]["standings"] = {"count": stats["standings_count"], "last_updated": stats["last_standings_update"].isoformat() if stats["last_standings_update"] else None, "status": get_status(stats["last_standings_update"], 35)}
         except Exception as e:
-            status["kafka"][topic] = {"message_count": 0, "status": str(e)}
+            status["postgres"] = {"error": str(e)}
 
-    consumer.close()
-    admin.close()
+        # Check Airflow DAGs
+        try:
+            cursor.execute("""
+                SELECT dag_id, state, execution_date, end_date
+                FROM dag_run
+                WHERE dag_id IN ('standings_refresh', 'daily_archive')
+                ORDER BY execution_date DESC
+            """)
 
-    # Check PostgreSQL by running a simple query for each table
-    try:
-        cursor.execute("""
-            SELECT
-                (SELECT COUNT(*) FROM games) AS games_count,
-                (SELECT MAX(last_updated) FROM games) AS last_game_update,
-                (SELECT COUNT(*) FROM goals) AS goals_count,
-                (SELECT MAX(created_at) FROM goals) AS last_goal_update,
-                (SELECT COUNT(*) FROM standings) AS standings_count,
-                (SELECT MAX(last_updated) FROM standings) AS last_standings_update
-        """)
+            dag_runs = cursor.fetchall()
+
+            for dag_run in dag_runs:
+                if dag_run["dag_id"] not in status["airflow"]:
+                    status["airflow"][dag_run["dag_id"]] = {
+                        "last_run": dag_run["end_date"].isoformat() if dag_run["end_date"] else None,
+                        "state": dag_run["state"],
+                        "status": "healthy" if dag_run["state"] == "success" else "error" if dag_run["state"] == "failed" else "running"
+                    }
+        except Exception as e:
+            status["airflow"] = {"error": str(e)}
+
+        # Check producer health by querying metadata table
+        try:
+            cursor.execute("SELECT value, last_updated FROM pipeline_metadata WHERE key = 'last_poll'")
+            result = cursor.fetchone()
+
+            status["producer"]["last_poll"] = result["last_updated"].isoformat() if result else None
+            status["producer"]["status"] = get_status(result["last_updated"], 2) if result else "unknown"
+        except Exception as e:
+            status["producer"] = {"status": str(e)}
         
-        stats = cursor.fetchone()
-
-        status["postgres"]["games"] = {"count": stats["games_count"], "last_updated": stats["last_game_update"].isoformat() if stats["last_game_update"] else None, "status": get_status(stats["last_game_update"], 2)}
-        status["postgres"]["goals"] = {"count": stats["goals_count"], "last_updated": stats["last_goal_update"].isoformat() if stats["last_goal_update"] else None, "status": get_status(stats["last_goal_update"], 5)}
-        status["postgres"]["standings"] = {"count": stats["standings_count"], "last_updated": stats["last_standings_update"].isoformat() if stats["last_standings_update"] else None, "status": get_status(stats["last_standings_update"], 35)}
-    except Exception as e:
-        status["postgres"] = {"error": str(e)}
-
-    # Check Airflow DAGs
-    try:
-        cursor.execute("""
-            SELECT dag_id, state, execution_date, end_date
-            FROM dag_run
-            WHERE dag_id IN ('epl_standings_refresh', 'epl_daily_archive')
-            ORDER BY execution_date DESC
-        """)
-
-        dag_runs = cursor.fetchall()
-
-        for dag_run in dag_runs:
-            if dag_run["dag_id"] not in status["airflow"]:
-                status["airflow"][dag_run["dag_id"]] = {
-                    "last_run": dag_run["end_date"].isoformat() if dag_run["end_date"] else None,
-                    "state": dag_run["state"],
-                    "status": "healthy" if dag_run["state"] == "success" else "error" if dag_run["state"] == "failed" else "running"
-                }
-    except Exception as e:
-        status["airflow"] = {"error": str(e)}
-
-    # Check producer health by querying metadata table
-    try:
-        cursor.execute("SELECT value, last_updated FROM pipeline_metadata WHERE key = 'last_poll'")
-        result = cursor.fetchone()
-
-        status["producer"]["last_poll"] = result["last_updated"].isoformat() if result else None
-        status["producer"]["status"] = get_status(result["last_updated"], 2) if result else "unknown"
-    except Exception as e:
-        status["producer"] = {"status": str(e)}
-    
-    release_db(conn)
-    cache.setex("pipeline_health", 30, json.dumps(status, default=str))  # cache for 30s
-    return status
+        cache.setex("pipeline_health", 30, json.dumps(status, default=str))  # cache for 30s
+        return status
+    finally:
+        release_db(conn)
 
 def get_status(last_updated, threshold_minutes):
     if not last_updated:
@@ -299,70 +301,77 @@ def get_status(last_updated, threshold_minutes):
 ## ── Games ───────────────────────────────────────────────────────────
 
 @app.get("/games")
-@limiter.limit("30/minute")
-def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$")):
+@limiter.limit("60/minute")
+def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea)$")):
     """
-    Return all games, optionally filtered by status.
-    
+    Return all games, optionally filtered by status and league.
     """
-    cache_key = f"games:{status or 'all'}"
+    cache_key = f"games:{status or 'all'}:{league or 'all'}"
     cached = cache.get(cache_key)
     if cached:
         return json.loads(cached)
 
     conn = get_db()
-    cursor = get_db_cursor(conn)
 
-    if status:
-        cursor.execute("""
-            SELECT game_id, home_team, away_team, home_id, away_id, home_score, away_score,
-                   status, period, clock, start_time, last_updated
+    try:
+        cursor = get_db_cursor(conn)
+
+        conditions = []
+        params = []
+
+        if status:
+            conditions.append("status = %s")
+            params.append(status)
+
+        if league:
+            conditions.append("league = %s")
+            params.append(league)     
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        cursor.execute(f"""
+            SELECT *
             FROM games
-            WHERE status = %s
+            {where}
             ORDER BY last_updated DESC, start_time ASC
-        """, (status,))
-    else:
-        cursor.execute("""
-            SELECT game_id, home_team_name, home_id, home_team, away_team_name, away_id, away_team, home_score, away_score,
-                   status, period, clock, start_time, last_updated
-            FROM games
-            ORDER BY last_updated DESC, start_time ASC
-        """)
+        """, params)
 
-    rows = [dict(r) for r in cursor.fetchall()]
-    release_db(conn)
+        rows = [dict(r) for r in cursor.fetchall()]
 
-    has_live = any(r["status"] in ("STATUS_IN_PROGRESS", "STATUS_FIRST_HALF", "STATUS_SECOND_HALF") for r in rows)
-    ttl = get_ttl(has_live)
+        has_live = any(r["status"] in ("STATUS_IN_PROGRESS", "STATUS_FIRST_HALF", "STATUS_SECOND_HALF") for r in rows)
+        ttl = get_ttl(has_live)
 
-    # Serialize datetime objects
-    for row in rows:
-        for k, v in row.items():
-            if hasattr(v, "isoformat"):
-                row[k] = v.isoformat()
+        # Serialize datetime objects
+        for row in rows:
+            for k, v in row.items():
+                if hasattr(v, "isoformat"):
+                    row[k] = v.isoformat()
 
-    cache.setex(cache_key, ttl, json.dumps(rows))  # cache 15s
-    return rows
-
+        cache.setex(cache_key, ttl, json.dumps(rows))  # cache 15s
+        return rows
+    finally:
+        release_db(conn)
 
 @app.get("/games/{game_id}")
-def get_game(game_id: str = Path(..., min_length=1, max_length=50, regex="[0-9]+$")):
+def get_game(game_id: str = Path(..., min_length=1, max_length=50, regex="^[0-9]+$")):
     """Return a single game by ID."""
     conn = get_db()
-    cursor = get_db_cursor(conn)
-    cursor.execute("SELECT * FROM games WHERE game_id = %s", (game_id,))
-    row = cursor.fetchone()
-    release_db(conn)
 
-    if not row:
-        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+    try:
+        cursor = get_db_cursor(conn)
+        cursor.execute("SELECT * FROM games WHERE game_id = %s", (game_id,))
+        row = cursor.fetchone()
 
-    result = dict(row)
-    for k, v in result.items():
-        if hasattr(v, "isoformat"):
-            result[k] = v.isoformat()
-    return result
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
+        result = dict(row)
+        for k, v in result.items():
+            if hasattr(v, "isoformat"):
+                result[k] = v.isoformat()
+        return result
+    finally:
+        release_db(conn)
 
 @app.get("/games/{game_id}/stats")
 def get_game_stats(game_id: str):
@@ -373,59 +382,75 @@ def get_game_stats(game_id: str):
         return json.loads(cached)
 
     conn = get_db()
-    cursor = get_db_cursor(conn)
-    cursor.execute("""
-        SELECT player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal
-        FROM goals
-        WHERE game_id = %s
-        ORDER BY seconds ASC
-    """, (game_id,))
-    rows = [dict(r) for r in cursor.fetchall()]
-    release_db(conn)
 
-    if not rows:
-        return []
+    try:
+        cursor = get_db_cursor(conn)
+        cursor.execute("""
+            SELECT *
+            FROM goals
+            WHERE game_id = %s
+            ORDER BY seconds ASC
+        """, (game_id,))
+        rows = [dict(r) for r in cursor.fetchall()]
 
-    cache.setex(cache_key, 15, json.dumps(rows))
-    return rows
+        if not rows:
+            return []
+
+
+        for row in rows:
+            for k, v in row.items():
+                if hasattr(v, 'isoformat'):
+                    row[k] = v.isoformat()
+
+        cache.setex(cache_key, 15, json.dumps(rows))
+        return rows
+    finally:
+        release_db(conn)
 
 ## ── Standings ───────────────────────────────────────────────────────
 
 @app.get("/standings")
-@app.get("/standings/{top_n:int}")
-def get_standings(top_n: int | None = None):
+def get_standings(league: str = 'epl'):
     """
     Return standings.
     """
-    cache_key = f"standings:{top_n or 'all'}"
+    cache_key = f"standings:{league}"
     cached = cache.get(cache_key)
     if cached:
         return json.loads(cached)
 
     conn = get_db()
-    cursor = get_db_cursor(conn)
 
-    if top_n is not None:
+    try:
+        cursor = get_db_cursor(conn)
+
         cursor.execute("""
             SELECT *
             FROM standings
+            WHERE league = %s
             ORDER BY rank ASC
-            LIMIT %s
-        """, (top_n,))
-    else:
-        cursor.execute("""
-            SELECT *
-            FROM standings
-            ORDER BY rank ASC
-        """)
+        """, (league, ))
 
-    rows = [dict(r) for r in cursor.fetchall()]
-    release_db(conn)
+        rows = [dict(r) for r in cursor.fetchall()]
 
-    for row in rows:
-        for k, v in row.items():
-            if hasattr(v, "isoformat"):
-                row[k] = v.isoformat()
+        for row in rows:
+            for k, v in row.items():
+                if hasattr(v, "isoformat"):
+                    row[k] = v.isoformat()
 
-    cache.setex(cache_key, 60, json.dumps(rows))  # cache 60s
-    return rows
+        cache.setex(cache_key, 60, json.dumps(rows))  # cache 60s
+        return rows
+    finally:
+        release_db(conn)
+
+@app.get("/leagues")
+def get_leagues():
+    conn = get_db()
+
+    try:
+        cursor = get_db_cursor(conn)
+        cursor.execute("SELECT DISTINCT league FROM games ORDER BY league ASC")
+        leagues = [r["league"] for r in cursor.fetchall()]
+        return leagues
+    finally:        
+        release_db(conn)

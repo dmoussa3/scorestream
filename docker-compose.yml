@@ -46,10 +46,7 @@ services:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
-    command: >
-      "kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic epl.live.scores --partitions 3 --replication-factor 1 &&
-       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic epl.standings --partitions 1 --replication-factor 1 &&
-       echo 'Topics created.'"
+    command: "/bin/sh -c 'kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic sports.live.scores --partitions 3 --replication-factor 1 && kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic sports.standings --partitions 1 --replication-factor 1 && echo Topics created'"
     restart: "no"
 
   # ── Kafka UI (view topics/messages in browser) ──────────────────

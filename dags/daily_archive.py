@@ -11,11 +11,17 @@ def archive_games(**context):
     conn = psycopg2.connect(DATABASE_URL)
 
     df = pd.read_sql("SELECT * FROM games", conn)
+    df_standings = pd.read_sql("SELECT * FROM standings", conn)
     conn.close()
 
-    output_path = f"/opt/airflow/archive/games/{date_str}.parquet"
-    df.to_parquet(output_path, index=False)
-    print(f"Archived {len(df)} games for {date_str} to {output_path}")
+    games_output_path = f"/opt/airflow/archive/games/{date_str}.parquet"
+    standings_output_path = f"/opt/airflow/archive/standings/{date_str}.parquet"
+    
+    df.to_parquet(games_output_path, index=False)
+    df_standings.to_parquet(standings_output_path, index=False)
+    
+    print(f"Archived {len(df)} games for {date_str} to {games_output_path}")
+    print(f"Archived {len(df_standings)} standings for {date_str} to {standings_output_path}")
 
 
 def archive_goals(**context):
