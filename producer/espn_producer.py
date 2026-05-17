@@ -127,6 +127,7 @@ def parse_game(game: dict, league: str) -> dict | None:
                 "goal_type": detail["type"]["text"],
                 "own_goal": detail.get("ownGoal", False),
                 "penalty": detail.get("penaltyKick", False),
+                "league": league,
             })
 
         cards = []
@@ -176,13 +177,13 @@ def parse_standing(entry: dict, league: str) -> dict | None:
         stats = {s["name"]: s["value"] for s in entry.get("stats", []) if "value" in s}
         team  = entry["team"]
         return {
-            "team_id":   team["id"],
+            "team_id": team["id"],
             "league": league,
             "team_name": team["displayName"],
-            "wins":      int(stats.get("wins", 0)),
-            "draws":    int(stats.get("ties", 0)),
-            "losses":    int(stats.get("losses", 0)),
-            "points":    int(stats.get("points", 0)),
+            "wins": int(stats.get("wins", 0)),
+            "draws": int(stats.get("ties", 0)),
+            "losses": int(stats.get("losses", 0)),
+            "points": int(stats.get("points", 0)),
             "goals_for": int(stats.get("pointsFor", 0)),
             "goals_against": int(stats.get("pointsAgainst", 0)),
             "goal_diff": int(stats.get("pointDifferential", 0)),

@@ -72,12 +72,12 @@ export default function StandingsTab({ lastUpdate, league = 'epl' }) {
                         return (
                             <div
                                 key={team.team_name}
-                                className={`grid grid-cols-12 gap-2 px-6 py-4 text-base hover:bg-[#3d0048] transition-colors ${rowColors(position)}`}
+                                className={`grid grid-cols-12 gap-2 px-6 py-4 items-center text-base hover:bg-[#3d0048] transition-colors ${rowColors(position)}`}
                             >
                                 
-                                <div className="col-span-1 text-center text-white font-medium">{position}</div>
+                                <div className="col-span-1 text-center text-white text-lg font-medium">{position}</div>
                                 <div className="col-span-4 flex items-center gap-3 font-medium text-white">
-                                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                                    <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center flex-shrink-0">
                                         <img
                                             src={`https://a.espncdn.com/i/teamlogos/soccer/500/${team.team_id}.png`}
                                             alt={team.team_name}

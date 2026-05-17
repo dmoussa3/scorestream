@@ -4,14 +4,15 @@ import { usePoll } from "../hooks/usePoll";
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
 const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
 
-const MATCH_DURATION = 5700; // 95 minutes in seconds
+const MATCH_DURATION = 5400; // 90 minutes in seconds
 
 const getTimelinePosition = (currentSeconds) => {
   const percentage = (currentSeconds / MATCH_DURATION) * 100;
-  return Math.min(percentage, 98);
+  return Math.min(percentage, 99);
 }
 
-const parseClock = (clockStr, period) => {
+const parseClock = (clockStr, period, status) => {
+    if (status === 'STATUS_HALFTIME') return 2700;
     if (!clockStr) return period === 1 ? 0 : 2700; // Start of match or start of second half
     const parts = clockStr.replace(/'/g, '').split('+');
     const base = parseInt(parts[0]) || 0
@@ -19,15 +20,15 @@ const parseClock = (clockStr, period) => {
     return (base + extra) * 60
 }
 
-const getPercentage = (game) => {
+const getPercentage = (game, seconds) => {
     if (!game) return null
     if (!LIVE_STATUSES.includes(game.status)) return null
-    if (game.status === 'STATUS_HALFTIME') return (2700 / MATCH_DURATION) * 100
+    if (game.status === 'STATUS_HALFTIME' || ((seconds >= 2700) && game.status === 'STATUS_FIRST_HALF')) return (2700 / MATCH_DURATION) * 100
 
-    const elapsed = parseClock(game.clock, game.period)
+    const elapsed = parseClock(game.clock, game.period, game.status)
 
     const total = game.period === 2 ? 2700 + elapsed : elapsed
-    return Math.min((total / MATCH_DURATION) * 100, 98)
+    return Math.min((total / MATCH_DURATION) * 99)
 }
 
 const secondsDisplay = (seconds) => {
@@ -57,6 +58,14 @@ export default function MatchesTab({ gameId, onBack }) {
     const error = gameError || goalsError
     const goalsArray = Array.isArray(goals) ? goals : []
 
+    const uniqueGoals = goalsArray.reduce((acc, goal) => {
+        const key = `${goal.player_id}-${goal.seconds}`
+        if (!acc.find(g => `${g.player_id}-${g.seconds}` === key)) {
+            acc.push(goal)
+        }
+        return acc
+    }, [])
+
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
     const [barSeconds, setBarSeconds] = useState(0)
     const lastSynched = useRef(null)
@@ -65,7 +74,7 @@ export default function MatchesTab({ gameId, onBack }) {
       if(!game?.clock || !LIVE_STATUSES.includes(game?.status ?? '')) return;
 
       if (game.clock) {
-        const parsed = parseClock(game.clock, game.period)
+        const parsed = parseClock(game.clock, game.period, game.status)
         const total = game.period === 2 ? 2700 + parsed : parsed
 
         setElapsedSeconds(total)
@@ -85,10 +94,10 @@ export default function MatchesTab({ gameId, onBack }) {
     if (error) return <div className="text-[#37003c] p-4">Error: {gameError || goalsError}</div>;
     if (!game) return <div className="text-[#37003c] p-4">Game not found.</div>;
 
-    const progressPercent = getPercentage(game)
+    const progressPercent = getPercentage(game, elapsedSeconds)
     const isLive = game && LIVE_STATUSES.includes(game.status)
     const livePercentage = isLive 
-        ? Math.min((barSeconds / MATCH_DURATION) * 100, 98) 
+        ? Math.min((barSeconds / MATCH_DURATION) * 100, 99) 
         : progressPercent
 
     const homeGoals = goalsArray.filter(g => g.team_id === game.home_id);
@@ -122,12 +131,14 @@ export default function MatchesTab({ gameId, onBack }) {
                             <div className="text-2xl font-bold text-white text-center">
                                 {game.home_team_name || game.home_team}
                             </div>
-                            <img
-                                src={`https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`}
-                                alt={game.home_team_name || game.home_team}
-                                className="w-16 h-16 object-contain"
-                                onError={(e) => {e.target.style.display = 'none'}}
-                            />
+                            <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                                <img
+                                    src={`https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`}
+                                    alt={game.home_team_name || game.home_team}
+                                    className="w-16 h-16 object-contain"
+                                    onError={(e) => {e.target.style.display = 'none'}}
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -141,12 +152,14 @@ export default function MatchesTab({ gameId, onBack }) {
                     {/* Away team */}
                     <div className="flex flex-col items-start">
                         <div className="flex items-center gap-3">
-                            <img
-                                src={`https://a.espncdn.com/i/teamlogos/soccer/500/${game.away_id}.png`}
-                                alt={game.away_team_name || game.away_team}
-                                className="w-16 h-16 object-contain"
-                                onError={(e) => {e.target.style.display = 'none'}}
-                            />
+                            <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+                                <img
+                                    src={`https://a.espncdn.com/i/teamlogos/soccer/500/${game.away_id}.png`}
+                                    alt={game.away_team_name || game.away_team}
+                                    className="w-16 h-16 object-contain"
+                                    onError={(e) => {e.target.style.display = 'none'}}
+                                />
+                            </div>
                             <div className="text-2xl font-bold text-white text-center">
                                 {game.away_team_name || game.away_team}
                             </div>
@@ -188,12 +201,12 @@ export default function MatchesTab({ gameId, onBack }) {
                     <div className="flex gap-6">
                         <div className="flex-1">
 
-                            {/* Minute labels below bar */}
+                            {/* Minute labels above bar */}
                             <div className="relative text-xs text-purple-500 mb-2 h-4">
                                 <span className="absolute left-0">0'</span>
                                 <span 
                                     className="absolute -translate-x-1/2"
-                                    style={{ left: `${(2700/5700) * 100}%`}}
+                                    style={{ left: `${(2700/ MATCH_DURATION) * 100}%`}}
                                  > HT 
                                  </span>
                                 <span className="absolute right-0">FT</span>
@@ -221,7 +234,7 @@ export default function MatchesTab({ gameId, onBack }) {
                                 {/* Halftime marker */}
                                 <div
                                     className="absolute top-0 bottom-0 w-1 bg-purple-500"
-                                    style={{ left: `${(2700 / 5700) * 100}%` }}
+                                    style={{ left: `${(2700 / MATCH_DURATION) * 100}%` }}
                                 />
 
                                 {/* Position inidicator */}

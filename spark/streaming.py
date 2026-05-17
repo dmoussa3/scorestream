@@ -42,7 +42,8 @@ goal_schema = ArrayType(StructType()
     .add("seconds", IntegerType())
     .add("goal_type", StringType())
     .add("own_goal", BooleanType())
-    .add("penalty", BooleanType())
+    .add("penalty_goal", BooleanType())
+    .add("league", StringType())
 )
 
 games_schema = StructType() \
@@ -168,7 +169,8 @@ def process_goals(df_batch, batch_id):
         col("game_id"), 
         explode(col("goals")).alias("goal")
     ).select(
-            col("game_id"), 
+            col("game_id"),
+            col("goal.league").alias("league"), 
             col("goal.player_id").alias("player_id"), 
             col("goal.player_name").alias("player_name"), 
             col("goal.team_id").alias("team_id"),
@@ -176,7 +178,7 @@ def process_goals(df_batch, batch_id):
             col("goal.seconds").alias("seconds"),
             col("goal.goal_type").alias("goal_type"),
             col("goal.own_goal").alias("own_goal"),
-            col("goal.penalty").alias("penalty")
+            col("goal.penalty_goal").alias("penalty_goal")
     )
 
     pool = get_pool()
@@ -188,11 +190,15 @@ def process_goals(df_batch, batch_id):
 
         for row in rows:
             cursor.execute("""
-                INSERT INTO goals (game_id, player_id, player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (game_id, player_id, minute, goal_type) DO NOTHING
+                INSERT INTO goals (game_id, league, player_id, player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (game_id, player_id, minute, goal_type) DO UPDATE SET
+                    goal_type = EXCLUDED.goal_type,
+                    minute = EXCLUDED.minute,
+                    league = EXCLUDED.league
             """, (
                 row.game_id,
+                row.league,
                 row.player_id,
                 row.player_name,
                 row.team_id,
@@ -200,7 +206,7 @@ def process_goals(df_batch, batch_id):
                 row.seconds,
                 row.goal_type,
                 row.own_goal,
-                row.penalty
+                row.penalty_goal
             ))
         conn.commit()
 

@@ -50,7 +50,7 @@ def parse_standings(entry: dict, league_name: str):
             'goals_against': int(stats.get('pointsAgainst', 0)),
             'goal_diff': int(stats.get('pointDifferential', 0)),
             'matches_played': int(stats.get('gamesPlayed', 0)),
-            'rank': int(stats.get('rank', 0)),
+            "rank": int(stats.get("rank", 0)),
             'deductions': int(stats.get('deductions', 0))
         }
     except (KeyError, ValueError) as e:
@@ -77,9 +77,9 @@ def refresh_all_standings(**context):
                     INSERT INTO standings (
                         team_id, league, team_name, wins, draws, losses,
                         points, goals_for, goals_against, goal_diff,
-                        matches_played, last_updated
+                        matches_played, rank, last_updated
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (team_id, league) DO UPDATE SET
                         wins           = EXCLUDED.wins,
                         draws          = EXCLUDED.draws,
@@ -89,6 +89,7 @@ def refresh_all_standings(**context):
                         goals_against  = EXCLUDED.goals_against,
                         goal_diff      = EXCLUDED.goal_diff,
                         matches_played = EXCLUDED.matches_played,
+                        rank           = EXCLUDED.rank,
                         last_updated   = NOW()
                 """, (
                     record["team_id"],
@@ -102,6 +103,7 @@ def refresh_all_standings(**context):
                     record["goals_against"],
                     record["goal_diff"],
                     record["matches_played"],
+                    record["rank"]
                 ))
             
             total += len(records)

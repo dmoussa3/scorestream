@@ -85,8 +85,8 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league }) {
                 </button>
             </div>
 
-            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
             <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
+            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
             <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
 
             {/* Legend */}
@@ -177,12 +177,14 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
     function TeamLogo({ teamId, team, size=10 }) {
         return (
             <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
-                <img
-                    src={`https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`}
-                    alt={team}
-                    className={`w-${size} h-${size} object-contain`}
-                    onError={(e) => {e.target.style.display = 'none'}}
-                />
+                 <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                    <img
+                        src={`https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`}
+                        alt={team}
+                        className={`w-${size} h-${size} object-contain`}
+                        onError={(e) => {e.target.style.display = 'none'}}
+                    />
+                 </div>
             </div>
         )
     }
@@ -261,7 +263,8 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
             {/* Period indicator for live games */}
             {isLive && (
                 <div className="mt-2 text-center text-xs text-purple-300">
-                    {Number(game.period) === 1 ? '1st Half' : '2nd Half'}
+                    {game.status === 'STATUS_FIRST_HALF' ? '1st Half' : 
+                        game.status === 'STATUS_SECOND_HALF' ? '2nd Half' : 'Halftime'}
                 </div>
             )}
 

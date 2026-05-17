@@ -7,6 +7,14 @@ import { useWebSocket } from './hooks/useWebSocket'
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000'
 
+const LEAGUES_NAMES = {
+	'epl': 'English Premier League 🇬🇧',
+	'laliga': 'La Liga 🇪🇸',
+	'bundesliga': 'Bundesliga 🇩🇪',
+	'seriea': 'Serie A 🇮🇹',
+	'ligue1': 'Ligue 1 🇫🇷'
+}
+
 export default function App() {
 	const [activeTab, setActiveTab] = useState('scores')
 	const [apiStatus, setApiStatus] = useState('checking...')
@@ -69,15 +77,15 @@ export default function App() {
 			</header>
 
 			{/* Tab navigation */}
-			<nav className="bg-[#2d0032] border-b border-purple-900 px-6">
-				<div className="flex flex-col items-center gap-1 py-1">
+			<nav className="bg-[#2d0032] border-b border-purple-900 px-6 py-3">
+				<div className="flex flex-col items-center gap-3 py-1">
 
 					<div className='flex gap-1'>
 						{tabs.map(tab => (
 						<button
 							key={tab}
 							onClick={() => setActiveTab(tab)}
-							className={`px-4 py-3 text-sm font-medium capitalize border-b-2 transition-colors ${
+							className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
 							activeTab === tab
 								? 'border-[#00ff85] text-[#00ff85]'
 								: 'border-transparent text-purple-300 hover:text-white'
@@ -102,7 +110,7 @@ export default function App() {
 											: 'bg-purple-900 text-purple-300 hover:text-white'
 									}`}
 								>
-									{l}
+									{LEAGUES_NAMES[l] || l.toUpperCase()}
 								</button>
 							))}
 						</div>
