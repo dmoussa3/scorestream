@@ -1,16 +1,32 @@
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useCallback, useEffect, useState } from "react";
 
-const rowColors = (position) => {
-    if (position === 1) { return 'border-l-4 border-b-2 border-blue-500 bg-blue-950/40'; }
-    if (position <= 5) { return 'border-l-4 border-t-2 border-b-2 border-blue-500 bg-blue-950/40'; }
-    if (position === 6) { return 'border-l-4 border-b-2 border-orange-500 bg-orange-950/40'; }
-    if (position === 7) { return 'border-l-4 border-b-2 border-green-500 bg-green-950/40'; }
-    if (position >= 18) { return 'border-l-4 border-b-2 border-t-2 border-red-400 bg-red-950/40'; }
-    return 'border-b-2 border-purple-800'; // default row style
+const rowColors = (position, theme) => {
+    if (position <= 5) return {
+        borderBottom: '2px solid #3b82f6',          // blue-500
+        backgroundColor: 'rgba(23, 37, 84, 0.4)',
+        borderLeft: '2px solid #3b82f6'             // blue-500
+    }
+    if (position === 6) return {
+        borderBottom: '2px solid #f97316',           // orange-500
+        backgroundColor: 'rgba(67, 20, 7, 0.4)',
+        borderLeft: '2px solid #f97316'              // orange-500
+    }
+    if (position === 7) return {
+        borderBottom: '2px solid #22c55e',           // green-500
+        backgroundColor: 'rgba(5, 46, 22, 0.4)',    // green-950 at 40% opacity
+        borderLeft: '2px solid #22c55e'              // green-500
+    }
+    if (position === 18) return { borderTop: '2px solid #ef4444', borderBottom: '2px solid #f87171', borderLeft: '2px solid #ef4444', backgroundColor: 'rgba(69, 10, 10, 0.4)' } // red-500
+    if (position >= 18) return {
+        borderBottom: '2px solid #f87171',
+        backgroundColor: 'rgba(69, 10, 10, 0.4)',
+        borderLeft: '2px solid #ef4444'              // red-500
+    }
+    return {borderBottom: '2px solid ${theme.border}', backgroundColor: '${theme.background}'}; // default row style
 };
 
-export default function StandingsTab({ lastUpdate, league = 'epl' }) {
+export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
     const [standings, setStandings] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
@@ -51,10 +67,15 @@ export default function StandingsTab({ lastUpdate, league = 'epl' }) {
             
             <div className='flex gap-6 items-start'>
                 {/* TABLE */}
-                <div className="bg-[#2d0032] rounded-lg border border-[#00ff85] overflow-hidden">
+                <div style={{ backgroundColor: theme.secondary, borderColor: theme.border }}
+                    className="rounded-lg border overflow-hidden"
+                >
 
                     {/* Header */}
-                    <div className="grid grid-cols-12 gap-2 px-6 py-4 text-sm font-semibold text-purple-400 uppercase tracking-wider border-b border-purple-800">
+                    <div 
+                        className="grid grid-cols-12 gap-2 px-6 py-4 text-sm font-semibold uppercase tracking-wider border-b"
+                        style={{ color: theme.text, borderColor: theme.border }}
+                    >
                         <div className="col-span-1 text-center">#</div>
                         <div className="col-span-4">Team</div>
                         <div className="col-span-1 text-center">MP</div>
@@ -72,11 +93,15 @@ export default function StandingsTab({ lastUpdate, league = 'epl' }) {
                         return (
                             <div
                                 key={team.team_name}
-                                className={`grid grid-cols-12 gap-2 px-6 py-4 items-center text-base hover:bg-[#3d0048] transition-colors ${rowColors(position)}`}
+                                style={rowColors(position, theme)}
+                                className={`grid grid-cols-12 gap-2 px-6 py-4 items-center text-base hover:opacity-80 transition-colors duration-300`}
                             >
                                 
                                 <div className="col-span-1 text-center text-white text-lg font-medium">{position}</div>
-                                <div className="col-span-4 flex items-center gap-3 font-medium text-white">
+                                <div 
+                                    className="col-span-4 flex items-center gap-3 font-medium"
+                                    style={{ color: theme.text }}
+                                >
                                     <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center flex-shrink-0">
                                         <img
                                             src={`https://a.espncdn.com/i/teamlogos/soccer/500/${team.team_id}.png`}
@@ -87,19 +112,31 @@ export default function StandingsTab({ lastUpdate, league = 'epl' }) {
                                     </div>
                                     {team.team_name}
                                 </div>
-                                <div className="col-span-1 text-center text-white">{team.matches_played}</div>
-                                <div className="col-span-1 text-center text-white">{team.wins}</div>
-                                <div className="col-span-1 text-center text-white">{team.draws}</div>
-                                <div className="col-span-1 text-center text-white">{team.losses}</div>
+                                <div className="col-span-1 text-center" style={{ color: theme.text }}>
+                                    {team.matches_played}
+                                </div>
+                                <div className="col-span-1 text-center" style={{ color: theme.text }}>
+                                    {team.wins}
+                                </div>
+                                <div className="col-span-1 text-center" style={{ color: theme.text }}>
+                                    {team.draws}
+                                </div>
+                                <div className="col-span-1 text-center" style={{ color: theme.text }}>
+                                    {team.losses}
+                                </div>
                                 <div className={`col-span-1 text-center ${
                                     team.goal_diff > 0 ? 'text-[#00ff85]' :
                                     team.goal_diff < 0 ? 'text-red-300' :
                                     'text-purple-200'
-                                }`}>
+                                }`} style={{ color: theme.text }}>
                                     {team.goal_diff > 0 ? `+${team.goal_diff}` : team.goal_diff}
                                 </div>
-                                <div className="col-span-1 text-center text-white">{team.goals_for} - {team.goals_against}</div>
-                                <div className="col-span-1 text-center font-bold text-white text-lg">{team.points}</div>
+                                <div className="col-span-1 text-center" style={{ color: theme.text }}>
+                                    {team.goals_for} - {team.goals_against}
+                                </div>
+                                <div className="col-span-1 text-center font-bold" style={{ color: theme.text }}>
+                                    {team.points}
+                                </div>
                             </div>
                         )
                     })}

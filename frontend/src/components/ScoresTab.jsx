@@ -6,7 +6,7 @@ import { useSubscriptions } from '../hooks/useSubscriptions'
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
 const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
 
-export default function ScoresTab({ onSelectGame, lastUpdate, league }) {
+export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
     const [games, setGames] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
@@ -85,9 +85,9 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league }) {
                 </button>
             </div>
 
-            <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
-            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
-            <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} />
+            <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} theme={theme} />
+            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} theme={theme} />
+            <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} theme={theme} />
 
             {/* Legend */}
             <div className="border-t border-gray-200 pt-6">
@@ -129,7 +129,7 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league }) {
     )
 }
 
-function Section({ title, accent, games, onSelect, isSubscribed, onToggleSubscription, notificationsActive }) {
+function Section({ title, accent, games, onSelect, isSubscribed, onToggleSubscription, notificationsActive, theme }) {
     if (!games.length) return null
 
     const colors = {
@@ -145,14 +145,14 @@ function Section({ title, accent, games, onSelect, isSubscribed, onToggleSubscri
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {games.map(game => (
-                    <GameCard key={game.game_id} game={game} onSelect={onSelect} isSubscribed={isSubscribed(game.game_id)} onToggleSubscription={() => {onToggleSubscription(game.game_id)}} notificationsActive={notificationsActive} />
+                    <GameCard key={game.game_id} game={game} onSelect={onSelect} isSubscribed={isSubscribed(game.game_id)} onToggleSubscription={() => {onToggleSubscription(game.game_id)}} notificationsActive={notificationsActive} theme={theme} />
                 ))}
             </div>
         </div>
     )
 }
 
-function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notificationsActive }) {
+function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notificationsActive, theme }) {
     const isLive = LIVE_STATUSES.includes(game.status)
     const isFinal = FINAL_STATUSES.includes(game.status)
 
@@ -192,8 +192,11 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
     return (
         <div
             onClick={() => onSelect(game.game_id)}
-            className="bg-[#2d0032] border border-purple-800 rounded-lg p-4 cursor-pointer hover:border-[#00ff85] transition-colors relative"
+            style={{ backgroundColor: theme.secondary, borderColor: theme.border }}
+            className="rounded-lg p-4 cursor-pointer transition-colors relative"
             title='Click to view match details'
+            onMouseEnter={e => e.currentTarget.style.borderColor = theme.accent}
+            onMouseLeave={e => e.currentTarget.style.borderColor = theme.border}
         >
             {/* Subscription toggle */}
             {notificationsActive && (
