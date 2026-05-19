@@ -1,29 +1,68 @@
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useCallback, useEffect, useState } from "react";
 
-const rowColors = (position, theme) => {
-    if (position <= 5) return {
-        borderBottom: '2px solid #3b82f6',          // blue-500
+const rowColors = (position, theme, league) => {
+    if (position <= 4) return {
+        borderBottom: '1px solid #3b82f6',          // blue-500
         backgroundColor: 'rgba(23, 37, 84, 0.4)',
-        borderLeft: '2px solid #3b82f6'             // blue-500
+        borderLeft: '4px solid #3b82f6'             // blue-500
     }
-    if (position === 6) return {
-        borderBottom: '2px solid #f97316',           // orange-500
+    if ((league === 'epl' || league === 'laliga') && position === 5) return {
+        borderBottom: '1px solid #3b82f6',          // blue-500
+        backgroundColor: 'rgba(23, 37, 84, 0.4)',
+        borderLeft: '4px solid #3b82f6'             // blue-500
+    }
+    if ((league === 'ligue1' || league === 'bundesliga' || league === 'seriea') && position === 5) return {
+        borderBottom: '1px solid #f97316',           // orange-500
         backgroundColor: 'rgba(67, 20, 7, 0.4)',
-        borderLeft: '2px solid #f97316'              // orange-500
+        borderLeft: '4px solid #f97316'             // orange-500
     }
-    if (position === 7) return {
-        borderBottom: '2px solid #22c55e',           // green-500
+    if (position === 6 && (league === 'ligue1')) return {
+        borderBottom: '1px solid #22c55e',           // green-500
         backgroundColor: 'rgba(5, 46, 22, 0.4)',    // green-950 at 40% opacity
-        borderLeft: '2px solid #22c55e'              // green-500
+        borderLeft: '4px solid #22c55e'              // green-500
     }
-    if (position === 18) return { borderTop: '2px solid #ef4444', borderBottom: '2px solid #f87171', borderLeft: '2px solid #ef4444', backgroundColor: 'rgba(69, 10, 10, 0.4)' } // red-500
+    if (position === 6 && (league === 'bundesliga' || league === 'seriea' || league === 'laliga' || league === 'epl')) return {
+         borderBottom: '1px solid #f97316',           // orange-500
+        backgroundColor: 'rgba(67, 20, 7, 0.4)',
+        borderLeft: '4px solid #f97316'             // orange-500
+    }
+    if (position === 7 && (league === 'laliga' || league === 'seriea' || league === 'bundesliga')) return {
+        borderBottom: '1px solid #22c55e',           // green-500
+        backgroundColor: 'rgba(5, 46, 22, 0.4)',    // green-950 at 40% opacity
+        borderLeft: '4px solid #22c55e'              // green-500
+    }
+    if (position === 7. && league === 'epl') return {
+        borderBottom: '1px solid #f97316',           // orange-500
+        backgroundColor: 'rgba(67, 20, 7, 0.4)',
+        borderLeft: '4px solid #f97316'             // orange-500
+    }
+    if (position === 8 && league === 'epl') return {
+        borderBottom: '1px solid #22c55e',           // green-500
+        backgroundColor: 'rgba(5, 46, 22, 0.4)',    // green-950 at 40% opacity
+        borderLeft: '4px solid #22c55e'              // green-500
+    }
+    if (league === 'ligue1' || league === 'bundesliga') {
+        if (position === 16) return {
+            borderTop: '2px solid #ef4444',             // red-500
+            borderBottom: '1px solid #f87171',          // red-400
+            backgroundColor: 'rgba(254, 202, 202, 0.4)', // red-200 at 40% opacity
+            borderLeft: '4px solid #ef4444'             // red-500
+        }
+
+        if (position >= 16) return {
+            borderBottom: '1px solid #f87171',          // red-400
+            backgroundColor: 'rgba(254, 202, 202, 0.4)', // red-200 at 40% opacity
+            borderLeft: '4px solid #ef4444'             // red-500
+        }
+    }
+    if (position === 18) return { borderTop: '2px solid #ef4444', borderBottom: '1px solid #f87171', borderLeft: '4px solid #ef4444', backgroundColor: 'rgba(69, 10, 10, 0.4)' } // red-500
     if (position >= 18) return {
-        borderBottom: '2px solid #f87171',
+        borderBottom: '1px solid #f87171',
         backgroundColor: 'rgba(69, 10, 10, 0.4)',
-        borderLeft: '2px solid #ef4444'              // red-500
+        borderLeft: '4px solid #ef4444'              // red-500
     }
-    return {borderBottom: '2px solid ${theme.border}', backgroundColor: '${theme.background}'}; // default row style
+    return {borderBottom: `1px solid ${theme.border}`, backgroundColor: `${theme.background}`}; // default row style
 };
 
 export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
@@ -93,7 +132,7 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
                         return (
                             <div
                                 key={team.team_name}
-                                style={rowColors(position, theme)}
+                                style={rowColors(position, theme, league)}
                                 className={`grid grid-cols-12 gap-2 px-6 py-4 items-center text-base hover:opacity-80 transition-colors duration-300`}
                             >
                                 
@@ -149,19 +188,22 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
                     </span>
                     <span className="flex items-center gap-2">
                         <span className="w-8 h-1 bg-blue-500 inline-block rounded-full" />
-                        UEFA Champions League (1-5)
+                        {league === 'epl' || league === 'laliga' ? 'UEFA Champions League (1-5)' : 'UEFA Champions League (1-4)'}
                     </span>
                     <span className="flex items-center gap-2">
                         <span className="w-8 h-1 bg-orange-500 inline-block rounded-full" />
-                        UEFA Europa League (6)
+                        {league === 'bundesliga' || league === 'seriea' ? 'UEFA Europa League (5-6)' :
+                            league === 'laliga' ? 'UEFA Europa League (6)' : 
+                            league === 'epl' ? 'UEFA Europa League (6-7)' : 'UEFA Europa League (5)'}
                     </span>
                     <span className="flex items-center gap-2">
                         <span className="w-8 h-1 bg-green-500 inline-block rounded-full" />
-                        UEFA Conference League (7)
+                        {league === 'ligue1'? 'UEFA Conference League (6)' : 
+                        league === 'laliga' || league === 'seriea' || league === 'bundesliga' ? 'UEFA Conference League (7)' : 'UEFA Conference League (8)'}
                     </span>
                     <span className="flex items-center gap-2">
                         <span className="w-8 h-1 bg-red-500 inline-block rounded-full" />
-                        Relegation (18-20)
+                        {league === 'epl' || league === 'laliga' || league === 'seriea' ? 'Relegation (18-20)' : 'Relegation (16-18)'}
                     </span>
                 </div>
             </div>

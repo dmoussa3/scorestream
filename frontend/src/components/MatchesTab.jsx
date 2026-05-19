@@ -45,7 +45,15 @@ const GOAL_ICON = {
     'Goal - Header': '⚽'
 }
 
-export default function MatchesTab({ gameId, onBack }) {
+const DEFAULT_THEME = {
+    primary:   '#37003c',
+    secondary: '#2d0032',
+    accent:    '#00ff85',
+    border:    '#5f0068',
+    text:      '#00ff85',
+}
+
+export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
     const { data: game, loading: gameLoading, error: gameError } = usePoll(`/games/${gameId}`, 15000)
     const isUpcoming = game != null && !LIVE_STATUSES.includes(game.status) && !FINAL_STATUSES.includes(game.status)
 
@@ -109,16 +117,23 @@ export default function MatchesTab({ gameId, onBack }) {
             {/* Back button */}
             <button
                 onClick={onBack}
-                className="flex items-center gap-2 text-sm text-[#37003c] hover:text-[#00ff85] hover:bg-purple-700 bg-[#00ff85] rounded-lg p-2 transition-colors"
+                style={{ backgroundColor: theme.accent, color: theme.primary }}
+                className="flex items-center gap-2 text-sm rounded-lg p-2 transition-colors"
             >
                 ← Back to Scores
             </button>
 
             {/* Match header card */}
-            <div className="bg-[#2d0032] border border-purple-800 rounded-lg p-6">
+            <div 
+                style={{ backgroundColor: theme.secondary, borderColor: theme.border }}
+                className="border rounded-lg p-6"
+            >
 
                 {/* Status */}
-                <div className="text-center text-xs text-purple-400 mb-4 uppercase tracking-wider">
+                <div 
+                    className="text-center text-xs mb-4 uppercase tracking-wider"
+                    style={{ color: theme.accent }}
+                >
                     {game.status_detail}
                 </div>
 
@@ -172,7 +187,7 @@ export default function MatchesTab({ gameId, onBack }) {
                     <div className="grid grid-cols-3 gap-4 pt-4 text-center">
                         <div className="space-y-1">
                             {homeGoals.map((g, i) => (
-                                <div key={i} className="text-xs text-purple-300">
+                                <div key={i} className="text-xs" style={{ color: theme.accent, opacity: 0.8 }}>
                                     {GOAL_ICON[g.goal_type] || ' ⚽ '} {g.player_name} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
                                 </div>
                             ))}
@@ -182,7 +197,7 @@ export default function MatchesTab({ gameId, onBack }) {
 
                         <div className="space-y-1">
                             {awayGoals.map((g, i) => (
-                                <div key={i} className="text-xs text-purple-300">
+                                <div key={i} className="text-xs" style={{ color: theme.accent, opacity: 0.8 }}>
                                     {GOAL_ICON[g.goal_type] || ' ⚽ '} {g.player_name} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
                                 </div>
                             ))}
@@ -193,7 +208,10 @@ export default function MatchesTab({ gameId, onBack }) {
 
             {/* Goal timeline */}
             {(isLive || goalsArray.length > 0) && (
-                <div className="bg-[#2d0032] border border-purple-800 rounded-lg p-6">
+                <div 
+                    className="border rounded-lg p-6"
+                    style={{ borderColor: theme.border, backgroundColor: theme.secondary }}
+                >
                     <h3 className="text-sm font-semibold text-white mb-6 uppercase tracking-wider">
                         Goal Timeline
                     </h3>
@@ -202,7 +220,10 @@ export default function MatchesTab({ gameId, onBack }) {
                         <div className="flex-1">
 
                             {/* Minute labels above bar */}
-                            <div className="relative text-xs text-purple-500 mb-2 h-4">
+                            <div 
+                                className="relative text-xs mb-2 h-4"
+                                style={{ color: theme.accent }}
+                            >
                                 <span className="absolute left-0">0'</span>
                                 <span 
                                     className="absolute -translate-x-1/2"
@@ -214,34 +235,37 @@ export default function MatchesTab({ gameId, onBack }) {
 
                             
                             {/* Timeline bar */}
-                            <div className="h-2 bg-purple-900 rounded-full relative overflow-hidden">
-                                
+                            <div 
+                                className="h-2 rounded-full relative overflow-hidden"
+                                style={{ backgroundColor: `${theme.primary}99` }}
+                            >
+
                                 {/* Live progress indicator */}
                                 {isLive && progressPercent !== null && (
                                     <div 
-                                        className="absolute top-0 left-0 h-full bg-[#00ff85] opacity-80 rounded-full transition-all duration-1000"
-                                        style={{ width: `${livePercentage}%` }}
+                                        className="absolute top-0 left-0 h-full rounded-full transition-all duration-1000"
+                                        style={{ width: `${livePercentage}%`, backgroundColor: theme.accent, opacity: 0.8 }}
                                     />
                                 )}
 
                                 {!isLive && FINAL_STATUSES.includes(game.status) && (
                                     <div 
-                                        className="absolute top-0 left-0 h-full bg-[#00ff85] rounded-full transition-all duration-1000"
-                                        style={{ width: `100%` }}
+                                        className="absolute top-0 left-0 h-full rounded-full transition-all duration-1000"
+                                        style={{ width: `100%`, backgroundColor: theme.accent }}
                                     />
                                 )}
 
                                 {/* Halftime marker */}
                                 <div
-                                    className="absolute top-0 bottom-0 w-1 bg-purple-500"
-                                    style={{ left: `${(2700 / MATCH_DURATION) * 100}%` }}
+                                    className="absolute top-0 bottom-0 w-1"
+                                    style={{ left: `${(2700 / MATCH_DURATION) * 100}%`, backgroundColor: theme.border }}
                                 />
 
                                 {/* Position inidicator */}
                                 {isLive && progressPercent !== null && (
                                     <div
-                                        className="absolute w-3 h-3 bg-[#00ff85] rounded-full border-2 border-white shadow-lg animate-pulse transition-all duration-1000"
-                                        style={{ left: `${livePercentage}%`, top: '50%', transform: 'translate(-50%, -50%)' }}
+                                        className="absolute w-3 h-3 rounded-full border-2 border-white shadow-lg animate-pulse transition-all duration-1000"
+                                        style={{ left: `${livePercentage}%`, top: '50%', transform: 'translate(-50%, -50%)', backgroundColor: theme.accent }}
                                     />
                                 )}
                 
@@ -252,10 +276,8 @@ export default function MatchesTab({ gameId, onBack }) {
                                     return (
                                         <div
                                             key={i}
-                                            className={`absolute w-3 h-3 rounded-full border-2 border-[#2d0032] ${
-                                                isHome ? 'bg-red-500' : 'bg-blue-500'
-                                            }`}
-                                            style={{ left: `${pos}%`, top: '50%', transform: 'translate(-50%, -50%)' }}
+                                            className='absolute w-3 h-3 rounded-full border-2'
+                                            style={{ left: `${pos}%`, top: '50%', transform: 'translate(-50%, -50%)', backgroundColor: isHome ? theme.border : '#ffffff', borderColor: theme.secondary, }}
                                             title={`${goal.player_name} ${goal.minute}`}
                                         />
                                     )
@@ -266,8 +288,8 @@ export default function MatchesTab({ gameId, onBack }) {
                             {isLive && progressPercent !== null && (
                                 <div className="relative h-5 mt-1">
                                     <div
-                                        className="absolute text-xs text-[#00ff85] font-medium"
-                                        style={{ left: `${livePercentage}%`, transform: 'translateX(-50%)' }}
+                                        className="absolute text-xs font-medium"
+                                        style={{ left: `${livePercentage}%`, transform: 'translateX(-50%)', color: theme.accent }}
                                     > {secondsDisplay(elapsedSeconds)} 
                                     </div>
                                 </div>
@@ -287,15 +309,15 @@ export default function MatchesTab({ gameId, onBack }) {
                                                 <div className={`flex items-center gap-2 flex-shrink-0 w-16 ${
                                                     isHome ? 'flex-row' : 'flex-row-reverse'
                                                 }`}>
-                                                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                                        isHome ? 'bg-red-500' : 'bg-blue-500'
-                                                    }`} />
-                                                    <span className="text-purple-300 text-xs"> {goal.minute} </span>
+                                                    <span className='w-3 h-3 rounded-full border-2'
+                                                        style={{ backgroundColor: isHome ? theme.border : '#ffffff', borderColor: theme.secondary }}
+                                                    />
+                                                    <span style={{ color: theme.accent }} className="text-xs"> {goal.minute} </span>
                                                 </div>
                                                 
                                                 <div className={`flex items-center gap-2 flex-1 ${isHome ? 'flex-row' : 'flex-row-reverse'}`}>
                                                     <span className="text-white font-medium">{goal.player_name}</span>
-                                                    <span className="text-purple-300 text-xs"> {goal.goal_type} </span>
+                                                    <span style={{ color: theme.accent, opacity: 0.7 }}className="text-xs"> {goal.goal_type} </span>
                                                 </div>
                                             </div>
                                         )
@@ -306,13 +328,13 @@ export default function MatchesTab({ gameId, onBack }) {
                     </div>
 
                     {/* Legend */}
-                    <div className="flex gap-4 mt-4 text-xs text-purple-300">
+                    <div className="flex gap-4 mt-4 text-xs" style={{ color: theme.accent }}>
                         <span className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-red-500" />
+                            <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: theme.border }} />
                             {game.home_team}
                         </span>
                         <span className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-blue-500" />
+                            <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: '#ffffff' }} />
                             {game.away_team}
                         </span>
                         <span className="flex items-center gap-1.5">
@@ -326,7 +348,10 @@ export default function MatchesTab({ gameId, onBack }) {
             )}
 
             {(!isLive && goalsArray.length === 0) && (
-                <div className="bg-[#2d0032] border border-purple-800 rounded-lg p-6 text-center text-purple-300 text-sm">
+                <div 
+                    className="border rounded-lg p-6 text-center text-sm"
+                    style={{ borderColor: theme.border, backgroundColor: theme.secondary, color: theme.accent }}
+                >
                     No goal events recorded for this match.
                 </div>
             )}
