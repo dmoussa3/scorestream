@@ -42,7 +42,8 @@ const GOAL_ICON = {
     'Goal': '⚽',
     'Goal - Volley': '⚽',
     'Penalty - Scored': '🎯',
-    'Goal - Header': '⚽'
+    'Goal - Header': '⚽',
+    'Free Kick - Scored': '🎯',
 }
 
 const DEFAULT_THEME = {
@@ -119,6 +120,16 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
                 onClick={onBack}
                 style={{ backgroundColor: theme.accent, color: theme.primary }}
                 className="flex items-center gap-2 text-sm rounded-lg p-2 transition-colors"
+                onMouseEnter={e => {
+                    e.currentTarget.style.backgroundColor = theme.primary
+                    e.currentTarget.style.color = theme.accent
+                    e.currentTarget.style.outline = `2px solid ${theme.accent}`
+                }}
+                onMouseLeave={e => {
+                    e.currentTarget.style.backgroundColor = theme.accent
+                    e.currentTarget.style.color = theme.primary
+                    e.currentTarget.style.outline = 'none'
+                }}
             >
                 ← Back to Scores
             </button>
@@ -277,7 +288,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
                                         <div
                                             key={i}
                                             className='absolute w-3 h-3 rounded-full border-2'
-                                            style={{ left: `${pos}%`, top: '50%', transform: 'translate(-50%, -50%)', backgroundColor: isHome ? theme.border : '#ffffff', borderColor: theme.secondary, }}
+                                            style={{ left: `${pos}%`, top: '50%', transform: 'translate(-50%, -50%)', backgroundColor: isHome ? theme.home : theme.away, borderColor: theme.secondary, }}
                                             title={`${goal.player_name} ${goal.minute}`}
                                         />
                                     )
@@ -310,7 +321,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
                                                     isHome ? 'flex-row' : 'flex-row-reverse'
                                                 }`}>
                                                     <span className='w-3 h-3 rounded-full border-2'
-                                                        style={{ backgroundColor: isHome ? theme.border : '#ffffff', borderColor: theme.secondary }}
+                                                        style={{ backgroundColor: isHome ? theme.home : theme.away, borderColor: theme.secondary }}
                                                     />
                                                     <span style={{ color: theme.accent }} className="text-xs"> {goal.minute} </span>
                                                 </div>
@@ -328,20 +339,20 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
                     </div>
 
                     {/* Legend */}
-                    <div className="flex gap-4 mt-4 text-xs" style={{ color: theme.accent }}>
+                    <div className="flex gap-4 mt-4 text-xs pl-40" style={{ borderTop: `1px solid ${theme.accent}`, paddingTop: '1rem', color: theme.accent }}>
                         <span className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: theme.border }} />
+                            <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: theme.home }} />
                             {game.home_team}
                         </span>
                         <span className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: '#ffffff' }} />
+                            <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: theme.away }} />
                             {game.away_team}
                         </span>
                         <span className="flex items-center gap-1.5">
                             ⚽️ Goal Event (Header/Volley/Other)
                         </span>
                         <span className="flex items-center gap-1.5">
-                            🎯 Penalty Goal
+                            🎯 Penalty Goal/Free-kick
                         </span>
                     </div>
                 </div>

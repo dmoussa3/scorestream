@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useState } from 'react'
 import { useSubscriptions } from '../hooks/useSubscriptions'
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
-const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
+const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_POSTPONED', 'STATUS_CANCELLED', 'STATUS_ABANDONED']
 
 export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
     const [games, setGames] = useState(null)
@@ -167,7 +167,13 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
     const badgeText = (isFinal, isLive, game) => {
         if (isLive && game.status === 'STATUS_HALFTIME') return 'HT'
         if (isLive) return `🔴 ${game.clock || 'Live'}`
-        if (isFinal) return 'FT'
+        if (isFinal) {
+            if (['STATUS_POSTPONED', 'STATUS_CANCELLED', 'STATUS_ABANDONED'].includes(game.status)) {
+                return game.status.replace('STATUS_', '').replace('_', ' ')
+            } else {
+                return 'FT'
+            }
+        }
 
         if (formattedTime) return 'KO'
 
@@ -279,7 +285,7 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
 
             {isFinal && (
                 <div className="mt-2 text-center text-sm text-purple-300">
-                    Full-time
+                    {game.status.replace('STATUS_', '').replace('_', ' ')}
                 </div>
             )}
         </div>

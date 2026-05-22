@@ -85,14 +85,17 @@ def get_db_pool():
     return _connection_pool
 
 def get_db():
-    conn = get_db_pool().getconn()
-    return conn
+    return get_db_pool().getconn()
 
 def get_db_cursor(conn):
     return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
 def release_db(conn):
-    get_db_pool().putconn(conn)
+     if conn is not None:
+        try:
+            get_db_pool().putconn(conn)
+        except Exception as e:
+            print(f"[api] Error releasing connection: {e}")
 
 # ── App ──────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -178,6 +181,8 @@ async def websocket_endpoint(websocket: WebSocket):
 def health():
     """Check that DB and cache are reachable."""
     status = {"api": "ok", "db": "unknown", "cache": "unknown"}
+    conn = None
+    
     try:
         conn = get_db()
         release_db(conn)
@@ -199,9 +204,10 @@ def health_pipeline(request: Request):
     if cached:
         return json.loads(cached)
 
-    conn = get_db()
+    conn = None
 
     try:
+        conn = get_db()
         cursor = get_db_cursor(conn)
 
         status = {"airflow": {}, "kafka": {}, "postgres": {}, "producer": {}}
@@ -311,9 +317,10 @@ def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STA
     if cached:
         return json.loads(cached)
 
-    conn = get_db()
+    conn = None
 
     try:
+        conn = get_db()
         cursor = get_db_cursor(conn)
 
         conditions = []
@@ -355,10 +362,12 @@ def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STA
 @app.get("/games/{game_id}")
 def get_game(game_id: str = Path(..., min_length=1, max_length=50, regex="^[0-9]+$")):
     """Return a single game by ID."""
-    conn = get_db()
+    conn = None
 
     try:
+        conn = get_db()
         cursor = get_db_cursor(conn)
+
         cursor.execute("SELECT * FROM games WHERE game_id = %s", (game_id,))
         row = cursor.fetchone()
 
@@ -381,9 +390,10 @@ def get_game_stats(game_id: str):
     if cached:
         return json.loads(cached)
 
-    conn = get_db()
+    conn = None
 
     try:
+        conn = get_db()
         cursor = get_db_cursor(conn)
         cursor.execute("""
             SELECT *
@@ -419,9 +429,10 @@ def get_standings(league: str = 'epl'):
     if cached:
         return json.loads(cached)
 
-    conn = get_db()
+    conn = None
 
     try:
+        conn = get_db()
         cursor = get_db_cursor(conn)
 
         cursor.execute("""
@@ -445,9 +456,10 @@ def get_standings(league: str = 'epl'):
 
 @app.get("/leagues")
 def get_leagues():
-    conn = get_db()
+    conn = None
 
     try:
+        conn = get_db()
         cursor = get_db_cursor(conn)
         cursor.execute("SELECT DISTINCT league FROM games ORDER BY league ASC")
         leagues = [r["league"] for r in cursor.fetchall()]

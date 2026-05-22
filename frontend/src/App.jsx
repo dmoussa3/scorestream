@@ -22,6 +22,8 @@ const LEAGUE_THEMES = {
         accent:     '#00ff85',  // PL green
         border:     '#5f0068',
         text:       '#00ff85',
+		home: 	 	'#0d71db',
+		away: 	 	'#d11e1b',
         name:       'Premier League',
     },
     laliga: {
@@ -30,6 +32,8 @@ const LEAGUE_THEMES = {
         accent:     '#ff4500',  // orange/red
         border:     '#004499',
         text:       '#ff4500',
+		home: 	 	'#0d71db',
+		away: 	 	'#ffcccb',
         name:       'La Liga',
     },
     bundesliga: {
@@ -38,6 +42,8 @@ const LEAGUE_THEMES = {
         accent:     '#ffffff',  // white
         border:     '#ff1a1a',
         text:       '#ffffff',
+		home: 	 	'#0d71db',
+		away: 	 	'#ffcccb',
         name:       'Bundesliga',
     },
     seriea: {
@@ -46,6 +52,8 @@ const LEAGUE_THEMES = {
         accent:     '#0096ff',  // blue
         border:     '#0066cc',
         text:       '#0096ff',
+		home: 	 	'#6d0db7',
+		away: 	 	'#ffcccb',
         name:       'Serie A',
     },
     ligue1: {
@@ -54,6 +62,8 @@ const LEAGUE_THEMES = {
         accent:     '#ffffff',  // white
         border:     '#0044cc',
         text:       '#ffffff',
+		home: 	 	'#0d71db',
+		away: 	 	'#ffcccb',
         name:       'Ligue 1',
     },
 }
