@@ -55,9 +55,9 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
     if (error)   return <div className="text-red-400 p-4">Error loading matches: {error}</div>
     if (!games?.length) return <div className="text-[#37003c] p-4">No matches found today.</div>
 
-    const live = games.filter(g => LIVE_STATUSES.includes(g.status))
-    const completed = games.filter(g => FINAL_STATUSES.includes(g.status))
-    const upcoming  = games.filter(g => !LIVE_STATUSES.includes(g.status) && !FINAL_STATUSES.includes(g.status))
+    const live = games.filter(g => LIVE_STATUSES.includes(g.status)).sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+    const completed = games.filter(g => FINAL_STATUSES.includes(g.status)).sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+    const upcoming  = games.filter(g => !LIVE_STATUSES.includes(g.status) && !FINAL_STATUSES.includes(g.status)).sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
 
     return (
         <div className="space-y-8">

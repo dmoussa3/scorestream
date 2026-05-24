@@ -65,19 +65,24 @@ export function useGameWatcher(games, notify, subscriptions) {
                         )
                     }
 
+                    const winner = `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
+                    if (newAwayScore > newHomeScore) {
+                        winner = `https://a.espncdn.com/i/teamlogos/soccer/500/${game.away_id}.png`
+                    }
+
                     // Full-time
                     if (game.status === 'STATUS_FULL_TIME' || game.status === 'STATUS_FINAL') {
                         notify(
-                            `🏁 Full Time`,
+                            `🔴 Full Time`,
                             `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team}`,
-                            `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
+                            winner
                         )
                     }
 
                     // Second-half start
                     if (game.status === 'STATUS_SECOND_HALF' && prev.status === 'STATUS_HALFTIME') {
                         notify(
-                            `🟣 Second Half`,
+                            `🟢 Second Half`,
                             `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team} -- Second half started`,
                             `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
                         )

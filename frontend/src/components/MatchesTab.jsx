@@ -54,7 +54,7 @@ const DEFAULT_THEME = {
     text:      '#00ff85',
 }
 
-export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
+export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league }) {
     const { data: game, loading: gameLoading, error: gameError } = usePoll(`/games/${gameId}`, 15000)
     const isUpcoming = game != null && !LIVE_STATUSES.includes(game.status) && !FINAL_STATUSES.includes(game.status)
 
@@ -248,7 +248,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
                             {/* Timeline bar */}
                             <div 
                                 className="h-2 rounded-full relative overflow-hidden"
-                                style={{ backgroundColor: `${theme.primary}99` }}
+                                style={{ backgroundColor: `${theme.accent}99` }}
                             >
 
                                 {/* Live progress indicator */}
@@ -269,7 +269,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME }) {
                                 {/* Halftime marker */}
                                 <div
                                     className="absolute top-0 bottom-0 w-1"
-                                    style={{ left: `${(2700 / MATCH_DURATION) * 100}%`, backgroundColor: theme.border }}
+                                    style={{ left: `${(2700 / MATCH_DURATION) * 100}%`, backgroundColor: league === 'seriea' ? `#ffffff` : theme.border }}
                                 />
 
                                 {/* Position inidicator */}

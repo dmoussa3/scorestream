@@ -192,7 +192,7 @@ export default function App() {
 			)}
 			{activeTab === 'standings' && <StandingsTab lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />}
 			{activeTab === 'match' && (
-				<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} theme={theme} />
+				<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} theme={theme} league={selectedLeague} />
 			)}
 			{activeTab === 'pipeline' && <PipelineTab active={activeTab === 'pipeline'} />}
 			</main>
