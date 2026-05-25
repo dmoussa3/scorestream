@@ -164,50 +164,50 @@ def process_goals(df_batch, batch_id):
     if games_w_goals.isEmpty():
         print(f"[spark-goals] No games with goals in batch {batch_id}")
         return
-        
-    df_goals = games_w_goals.select(
-        col("game_id"), 
-        explode(col("goals")).alias("goal")
-    ).select(
-            col("game_id"),
-            col("goal.league").alias("league"), 
-            col("goal.player_id").alias("player_id"), 
-            col("goal.player_name").alias("player_name"), 
-            col("goal.team_id").alias("team_id"),
-            col("goal.minute").alias("minute"),
-            col("goal.seconds").alias("seconds"),
-            col("goal.goal_type").alias("goal_type"),
-            col("goal.own_goal").alias("own_goal"),
-            col("goal.penalty_goal").alias("penalty_goal")
-    )
 
     pool = get_pool()
     conn = pool.getconn()
-    cursor = conn.cursor()
-
+    
     try:
-        rows = df_goals.collect()
+        cursor = conn.cursor()
+        rows = games_w_goals.collect()
 
         for row in rows:
-            cursor.execute("""
-                INSERT INTO goals (game_id, league, player_id, player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (game_id, player_id, minute, goal_type) DO UPDATE SET
-                    goal_type = EXCLUDED.goal_type,
-                    minute = EXCLUDED.minute,
-                    league = EXCLUDED.league
-            """, (
-                row.game_id,
-                row.league,
-                row.player_id,
-                row.player_name,
-                row.team_id,
-                row.minute,
-                row.seconds,
-                row.goal_type,
-                row.own_goal,
-                row.penalty_goal
-            ))
+            game_id = row.game_id
+            current_seconds = [g.seconds for g in row.goals if g.seconds is not None]
+
+            if current_seconds:
+                cursor.execute("""
+                    DELETE FROM goals
+                    WHERE game_id = %s AND seconds NOT IN %s
+                """, ( game_id, tuple(current_seconds) ))
+            else:
+                cursor.execute("""
+                    DELETE FROM goals
+                    WHERE game_id = %s
+                """, (game_id,))
+
+            for goal in row.goals:
+                cursor.execute("""
+                    INSERT INTO goals (game_id, league, player_id, player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (game_id, player_id, minute, goal_type) DO UPDATE SET
+                        goal_type = EXCLUDED.goal_type,
+                        minute = EXCLUDED.minute,
+                        league = EXCLUDED.league
+                """, (
+                    row.game_id,
+                    goal.league,
+                    goal.player_id,
+                    goal.player_name,
+                    goal.team_id,
+                    goal.minute,
+                    goal.seconds,
+                    goal.goal_type,
+                    goal.own_goal,
+                    goal.penalty_goal
+                ))
+
         conn.commit()
 
         cache.publish("scorestream.updates", json.dumps({
@@ -221,7 +221,6 @@ def process_goals(df_batch, batch_id):
         print(f"[spark-goals] Batch {batch_id} - Error processing goals batch: {e}")
         conn.rollback()
     finally:
-        cursor.close()
         pool.putconn(conn)
 
 scores_query = df_scores.writeStream \

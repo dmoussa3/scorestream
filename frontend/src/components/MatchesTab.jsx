@@ -43,7 +43,7 @@ const GOAL_ICON = {
     'Goal - Volley': '⚽',
     'Penalty - Scored': '🎯',
     'Goal - Header': '⚽',
-    'Free Kick - Scored': '🎯',
+    'Goal - Free-kick': '🎯',
 }
 
 const DEFAULT_THEME = {

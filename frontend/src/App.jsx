@@ -68,6 +68,14 @@ const LEAGUE_THEMES = {
     },
 }
 
+const LEAGUE_COLORS = {
+    epl:        { bg: '#37003c', text: '#00ff85', border: '#00ff85' },
+    laliga:     { bg: '#003366', text: '#ff4500', border: '#ff4500' },
+    bundesliga: { bg: '#d3010c', text: '#ffffff', border: '#ffffff' },
+    seriea:     { bg: '#1a1a2e', text: '#0096ff', border: '#0096ff' },
+    ligue1:     { bg: '#003189', text: '#ffffff', border: '#ffffff' },
+}
+
 export default function App() {
 	const [activeTab, setActiveTab] = useState('scores')
 	const [apiStatus, setApiStatus] = useState('checking...')
@@ -166,20 +174,47 @@ export default function App() {
 					{/* League selector - only show on scores and standings tab */}
 					{(activeTab === 'scores' || activeTab === 'standings') && (
 						<div className='flex items-center gap-2'>
-							{availableLeagues.map(l => (
-								<button
-									key={l}
-									onClick={() => setSelectedLeague(l)}
-									style={selectedLeague === l ? { backgroundColor: theme.accent, color: theme.primary } : {}}
-									className={`text-xs px-3 py-1 rounded-full font-medium capitalize transition-colors ${
-										selectedLeague === l
-											? ''
-											: 'bg-purple-900 text-purple-300 hover:text-white'
-									}`}
-								>
-									{LEAGUES_NAMES[l] || l.toUpperCase()}
-								</button>
-							))}
+							{availableLeagues.map(l => {
+								const isSelected = l === selectedLeague
+								const colors = LEAGUE_COLORS[l] || LEAGUE_COLORS.epl
+								return (
+									<button
+										key={l}
+										onClick={() => setSelectedLeague(l)}
+										style={
+											isSelected ? {
+											backgroundColor: colors.bg,
+											color:           colors.text,
+											borderColor:     colors.border,
+											borderWidth:     '2px',
+											borderStyle:     'solid',
+										} : {
+											backgroundColor: 'transparent',
+											color:           '#c4b5fd',
+											borderColor:     '#ffffff',
+											borderWidth:     '2px',
+											borderStyle:     'solid',
+										}}
+										className={`text-xs px-3 py-1 rounded-full font-medium capitalize transition-colors duration-200`}
+										onMouseEnter={e => {
+											if (!isSelected) {
+												e.currentTarget.style.backgroundColor = colors.bg
+												e.currentTarget.style.color = colors.text
+												e.currentTarget.style.borderColor = colors.border
+											}
+										}}
+										onMouseLeave={e => {
+											if (!isSelected) {
+												e.currentTarget.style.backgroundColor = 'transparent'
+												e.currentTarget.style.color = '#c4b5fd'
+												e.currentTarget.style.borderColor = '#ffffff'
+											}
+										}}
+									>
+										{LEAGUES_NAMES[l] || l.toUpperCase()}
+									</button>
+								)
+							})}
 						</div>
 					)}
 				</div>

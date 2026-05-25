@@ -19,8 +19,8 @@ POLL_INTERVAL      = int(os.getenv("POLL_INTERVAL_SECONDS", 15))
 TOPIC_SCORES       = "sports.live.scores"
 TOPIC_STANDINGS    = "sports.standings"
 
-ESPN_BASE    = "https://site.api.espn.com/apis/site/v2/sports/soccer"
-ESPN_STANDINGS     = "https://site.api.espn.com/apis/v2/sports/soccer"
+ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer"
 
 HEADERS = {"User-Agent": "ScoreStream/1.0"}
 
