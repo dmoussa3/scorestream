@@ -12,6 +12,7 @@ import psycopg2
 from psycopg2 import pool
 import psycopg2.extras
 import redis
+import anthropic
 
 from fastapi import FastAPI, HTTPException, Path, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,6 +72,276 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+DB_SCHEMA = """
+These are the database tables for the ScoreStream application:
+
+games (
+    league          VARCHAR DEFAULT 'epl',
+    game_id         VARCHAR PRIMARY KEY,
+    home_team       VARCHAR NOT NULL,
+    home_team_name  VARCHAR NOT NULL,
+    home_id         VARCHAR NOT NULL,
+    away_team       VARCHAR NOT NULL,
+    away_team_name  VARCHAR NOT NULL,
+    away_id         VARCHAR NOT NULL,
+    home_score      INT DEFAULT 0,
+    away_score      INT DEFAULT 0,
+    period          VARCHAR,
+    clock           VARCHAR,
+    status          VARCHAR NOT NULL,  -- STATUS_SCHEDULED, STATUS_IN_PROGRESS, STATUS_FULL_TIME, STATUS_ABANDONED
+    status_detail   VARCHAR,
+    start_time      TIMESTAMP,
+    last_updated    TIMESTAMP DEFAULT NOW()
+)
+
+goals (
+    id              SERIAL PRIMARY KEY,
+    game_id         VARCHAR REFERENCES games(game_id) ON DELETE CASCADE,
+    league          VARCHAR DEFAULT 'epl',
+    player_id       VARCHAR NOT NULL,
+    player_name     VARCHAR NOT NULL,
+    team_id         VARCHAR NOT NULL,
+    minute          VARCHAR,
+    seconds         INT,
+    goal_type       VARCHAR,  -- e.g., "Volley", "Penalty", "Own Goal"
+    own_goal        BOOLEAN DEFAULT FALSE,
+    penalty_goal    BOOLEAN DEFAULT FALSE,
+    created_at      TIMESTAMP DEFAULT NOW(),
+)
+
+standings (
+    team_id         VARCHAR NOT NULL,
+    league          VARCHAR NOT NULL DEFAULT 'epl',
+    team_name       VARCHAR NOT NULL,
+    wins            INT DEFAULT 0,
+    losses          INT DEFAULT 0,
+    draws           INT DEFAULT 0,
+    points          INT DEFAULT 0,
+    goals_for       INT DEFAULT 0,
+    goals_against   INT DEFAULT 0,
+    goal_diff       INT DEFAULT 0,
+    matches_played  INT DEFAULT 0,
+    rank            INT DEFAULT 0,
+    deductions      INT DEFAULT 0,
+    last_updated    TIMESTAMP DEFAULT NOW(),
+
+    PRIMARY KEY (team_id, league)
+)
+
+Example queries:
+
+-- Who scored in Arsenal's last game?
+SELECT 
+    gl.player_name,
+    gl.minute,
+    gl.goal_type,
+    gl.own_goal,
+    gl.penalty_goal,
+    CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+        ELSE 'Unknown'
+    END AS scored_for,
+    gm.home_team_name,
+    gm.away_team_name,
+    gm.home_score,
+    gm.away_score,
+    gm.start_time,
+    gm.status
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE (gm.home_team_name ILIKE '%arsenal%' OR gm.away_team_name ILIKE '%arsenal%')
+AND gm.game_id = (
+    SELECT game_id FROM games
+    WHERE (home_team_name ILIKE '%arsenal%' OR away_team_name ILIKE '%arsenal%')
+    AND status NOT IN (
+        'STATUS_SCHEDULED', 
+        'STATUS_IN_PROGRESS', 
+        'STATUS_HALFTIME',
+        'STATUS_FIRST_HALF',
+        'STATUS_SECOND_HALF'
+    )
+    ORDER BY start_time DESC
+    LIMIT 1
+)
+ORDER BY gl.seconds ASC;
+
+-- What was the score in Arsenal's last game?
+SELECT home_team_name, away_team_name, home_score, away_score, start_time, status_detail
+FROM games
+WHERE (home_team_name ILIKE '%arsenal%' OR away_team_name ILIKE '%arsenal%')
+AND status IN ('STATUS_FULL_TIME', 'STATUS_ABANDONED')
+ORDER BY start_time DESC
+LIMIT 1;
+
+-- Who is the top scorer in the Premier League?
+SELECT player_name, COUNT(*) as goals,
+       SUM(CASE WHEN own_goal THEN 1 ELSE 0 END) as own_goals
+FROM goals
+WHERE league = 'epl' AND own_goal = false
+GROUP BY player_name
+ORDER BY goals DESC
+LIMIT 10;
+
+-- Which teams have the best goal difference in La Liga?
+SELECT team_name, goal_diff, points, rank
+FROM standings
+WHERE league = 'laliga'
+ORDER BY goal_diff DESC
+LIMIT 5;
+
+-- How many goals were scored today?
+SELECT COUNT(*) as total_goals, g.league
+FROM goals g
+JOIN games gm ON g.game_id = gm.game_id
+WHERE DATE(gm.start_time) = CURRENT_DATE
+AND g.own_goal = false
+GROUP BY g.league;
+
+-- Who scored in Arsenal's last game?
+SELECT 
+    g.player_name,
+    g.minute,
+    g.goal_type,
+    g.own_goal,
+    g.penalty_goal,
+    CASE 
+        WHEN g.team_id = gm.home_id THEN gm.home_team_name
+        WHEN g.team_id = gm.away_id THEN gm.away_team_name
+        ELSE 'Unknown'
+    END AS scored_for,
+    gm.home_team_name,
+    gm.away_team_name,
+    gm.home_score,
+    gm.away_score,
+    gm.start_time
+FROM goals g
+JOIN games gm ON g.game_id = gm.game_id
+WHERE (gm.home_team_name ILIKE '%arsenal%' OR gm.away_team_name ILIKE '%arsenal%')
+AND gm.status IN ('STATUS_FULL_TIME', 'STATUS_ABANDONED')
+AND gm.game_id = (
+    SELECT game_id FROM games
+    WHERE (home_team_name ILIKE '%arsenal%' OR away_team_name ILIKE '%arsenal%')
+    AND status IN ('STATUS_FULL_TIME', 'STATUS_ABANDONED')
+    ORDER BY start_time DESC
+    LIMIT 1
+)
+ORDER BY g.seconds ASC;
+
+-- What happened in Burnley's last game? / Tell me about Arsenal's last game
+SELECT 
+    gm.home_team_name,
+    gm.away_team_name,
+    gm.home_score,
+    gm.away_score,
+    gm.start_time,
+    gm.status,
+    gl.player_name,
+    gl.minute,
+    gl.goal_type,
+    gl.own_goal,
+    gl.penalty_goal,
+    CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+        ELSE 'Unknown'
+    END AS scored_for
+FROM games gm
+LEFT JOIN goals gl ON gm.game_id = gl.game_id
+WHERE (gm.home_team_name ILIKE '%burnley%' OR gm.away_team_name ILIKE '%burnley%')
+AND gm.game_id = (
+    SELECT game_id FROM games
+    WHERE (home_team_name ILIKE '%burnley%' OR away_team_name ILIKE '%burnley%')
+    AND status NOT IN (
+        'STATUS_SCHEDULED',
+        'STATUS_IN_PROGRESS', 
+        'STATUS_HALFTIME',
+        'STATUS_FIRST_HALF',
+        'STATUS_SECOND_HALF'
+    )
+    ORDER BY start_time DESC
+    LIMIT 1
+)
+ORDER BY gl.seconds ASC;
+"""
+
+TEAM_ALIASES = """
+Common team name aliases — always expand these to their full ESPN name in queries:
+
+PSG, Paris SG → Paris Saint-Germain
+Man United, Man Utd, MUFC → Manchester United
+Man City, MCFC → Manchester City
+Spurs → Tottenham Hotspur
+Inter, Inter Milan → Internazionale
+Inter Miami → Inter Miami
+Barca, FCB, Varca, Varcelona → Barcelona
+Real → Real Madrid
+Atletico, Atletico Madrid → Atlético Madrid
+Wolves → Wolverhampton Wanderers
+West Ham → West Ham United
+Newcastle → Newcastle United
+Nottm Forest, Nott'm Forest, Forest → Nottingham Forest
+Brighton → Brighton & Hove Albion
+Leicester → Leicester City
+Bournemouth → AFC Bournemouth
+Wolves → Wolverhampton Wanderers
+Leverkusen → Bayer Leverkusen
+Dortmund, BVB → Borussia Dortmund
+Gladbach → Borussia Mönchengladbach
+Frankfurt → Eintracht Frankfurt
+Schalke → FC Schalke 04
+Freiburg → SC Freiburg
+Juve → Juventus
+Roma → AS Roma
+Lazio → Lazio
+Napoli → Napoli
+Milan, AC Milan → AC Milan
+Sociedad → Real Sociedad
+Betis → Real Betis
+Villarreal → Villarreal
+Sevilla → Sevilla
+Lyon → Lyon
+Marseille → Marseille
+Monaco → AS Monaco
+Lille → Lille
+Rennes → Stade Rennais
+"""
+
+ALIAS_MAP = {
+    "psg":              "Paris Saint-Germain",
+    "man united":       "Manchester United",
+    "man utd":          "Manchester United",
+    "man city":         "Manchester City",
+    "spurs":            "Tottenham Hotspur",
+    "inter":            "Internazionale",
+    "barca":            "Barcelona",
+    "real madrid":      "Real Madrid",
+    "atletico":         "Atlético Madrid",
+    "atleti":           "Atlético Madrid",
+    "wolves":           "Wolverhampton Wanderers",
+    "west ham":         "West Ham United",
+    "newcastle":        "Newcastle United",
+    "brighton":         "Brighton & Hove Albion",
+    "leicester":        "Leicester City",
+    "forest":           "Nottingham Forest",
+    "wolves":           "Wolverhampton Wanderers",
+    "bournemoth":       "AFC Bournemouth",
+    "leverkusen":       "Bayer Leverkusen",
+    "dortmund":         "Borussia Dortmund",
+    "bvb":              "Borussia Dortmund",
+    "juve":             "Juventus",
+    "juventus":         "Juventus",
+    "roma":             "AS Roma",
+    "milan":            "AC Milan",
+    "lyon":             "Lyon",
+    "marseille":        "Marseille",
+    "lille":            "Lille",
+    "monaco":           "AS Monaco",
+    "alaves":           "Alavés",
+}
+
 # ── DB helper ────────────────────────────────────────────────────────
 _connection_pool = None
 
@@ -116,7 +387,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -465,4 +736,120 @@ def get_leagues():
         leagues = [r["league"] for r in cursor.fetchall()]
         return leagues
     finally:        
+        release_db(conn)
+
+def expand_aliases(question: str) -> str:
+    q = question.lower()
+    for alias, full in ALIAS_MAP.items():
+        if alias in q:
+            question = question.replace(alias, full)
+            question = question.replace(alias.title(), full)  # also replace title case
+            question = question.replace(alias.upper(), full)  # also replace upper case
+    return question
+
+@app.post("/chat")
+def chat(request: Request, body: dict):
+    question = body.get("question", "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required")
+
+    conversation = body.get("conversation", [])
+
+    expanded_question = expand_aliases(question)
+    print(f"[chat] Received question: {question} → Expanded: {expanded_question}")
+    
+    conn = None
+    try:
+        messages = conversation + [{"role": "user", "content": expanded_question}]
+
+        sql_response = anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            system=f"""You are a SQL expert for a football data pipeline application called ScoreStream. 
+            Given a natural language question, write a PostgreSQL query to answer it based on the following database schema:\n
+            {DB_SCHEMA}
+
+            {TEAM_ALIASES}
+
+            Rules:
+            - For completed or finished games use: 
+            status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_ABANDONED')
+            - When finding a team's last game use:
+            status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF')
+            This catches any completed status including abandoned games
+            - For questions like 'what happened', 'tell me about', 'how did it go', 'recap' — 
+            always JOIN goals and include scorer information, not just the final score
+            - Any question about a specific game should always include goal scorer data via LEFT JOIN
+            - Return ONLY the SQL query, no explanation, no markdown, no backticks
+            - Use ILIKE for team name searches — always search both home_team_name and away_team_name
+            - When a user mentions a team by nickname or acronym, expand it to the full ESPN name using the aliases above
+            - For partial name matches use ILIKE '%partial%' — e.g. 'Paris Saint-Germain' → ILIKE '%Paris Saint-Germain%'
+            - For 'last game' use ORDER BY start_time DESC LIMIT 1 on completed games
+            - For 'today' use CURRENT_DATE
+            - For 'this week' use start_time >= CURRENT_DATE - INTERVAL '7 days'
+            - Limit results to 20 rows maximum
+            - For league names use: epl, laliga, bundesliga, seriea, ligue1
+            - Never use DROP, DELETE, UPDATE, INSERT or any write operations
+            - When asking about a team's scorers always JOIN goals with games on game_id
+            - Every query involving goals MUST include a 'scored_for' column computed as:
+                CASE WHEN g.team_id = gm.home_id THEN gm.home_team_name
+                    WHEN g.team_id = gm.away_id THEN gm.away_team_name
+                    ELSE 'Unknown Team' END AS scored_for
+            - If the question cannot be answered return: SELECT 'I cannot answer that with the available data' AS message
+            """,
+            messages=messages
+        )
+
+        sql = sql_response.content[0].text.strip()
+        print(f"[chat] Generated SQL: {sql}")
+
+        forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE"]
+        if any(word in sql.upper() for word in forbidden):
+            raise HTTPException(status_code=400, detail="I can only answer read-only questions about match data. Please rephrase your question.")
+        
+        conn = get_db()
+        cursor = get_db_cursor(conn)
+        cursor.execute(sql)
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        for row in rows:
+            for k, v in row.items():
+                if hasattr(v, "isoformat"):
+                    row[k] = v.isoformat()
+
+        answer_response = anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            system=f"""You are a helpful assistant for a football data pipeline application called ScoreStream. 
+            Given a natural language question and the SQL query results, provide a clear and concise, natural language answer to the user.
+
+            Rules:
+            - If status is 'STATUS_ABANDONED', note that the game was abandoned and goals shown are from before the abandonment
+            - Always use the 'scored_for' field to say which team a player scored for — never guess from the player name
+            - Format the final score on its own line as: Home Team 2 - 1 Away Team
+            - List each goal scorer on its own line in this format:
+            ⚽ Player Name (Team Name) 23' — Goal Type
+            🎯 Player Name (Team Name) 45' — Penalty
+            🔴 Player Name (Team Name) 67' — Own Goal
+            - Put a blank line between the score and the scorer list
+            - If own_goal is true use 🔴 and note it as an own goal
+            - If penalty_goal is true use 🎯
+            - Otherwise use ⚽
+            - Keep any summary sentence brief — one line at most
+            - If player_name is null for all rows, the game was a 0-0 draw — say so clearly
+            - For 'what happened' questions give a full match summary:
+            first the score, then list each scorer, then a brief one-line summary
+            - Never mention SQL or databases
+            - If data is empty say so clearly
+            """,
+            messages=[
+                {"role": "user", "content": f"Question: {question}\n\nData: {json.dumps(rows, default=str)}"}
+            ]
+        )
+
+        return {"answer": answer_response.content[0].text.strip(), "sql": sql}
+    except Exception as e:
+        print(f"[chat] Error: {e}")
+        return {"answer": "Sorry, I couldn't process your question. Try rephrasing it or ask something else about football matches."}
+    finally:
         release_db(conn)

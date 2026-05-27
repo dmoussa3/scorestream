@@ -146,6 +146,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_HOST: redis
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     restart: unless-stopped
 
   # ── Airflow (for scheduling/monitoring Spark jobs) ─────

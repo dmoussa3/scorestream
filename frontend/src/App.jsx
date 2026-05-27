@@ -3,6 +3,7 @@ import ScoresTab from './components/ScoresTab'
 import StandingsTab from './components/StandingsTab'
 import PipelineTab from './components/PipelineTab'
 import MatchesTab from './components/MatchesTab'
+import ChatTab from './components/ChatTab'
 import { useWebSocket } from './hooks/useWebSocket'
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000'
@@ -82,14 +83,7 @@ export default function App() {
 	const [selectedGameId, setSelectedGameId] = useState(null)
 	const [lastUpdate, setLastUpdate] = useState(null)
 	const [selectedLeague, setSelectedLeague] = useState('epl')
-	const [availableLeagues, setAvailableLeagues] = useState(['epl'])
-
-	useEffect(() => {
-		fetch(`${API}/leagues`)
-		.then(res => res.json())
-		.then(setAvailableLeagues)
-		.catch(() => {})
-	}, [])
+	const availableLeagues = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1']
 
 	const handleWebSocketMessage = useCallback((message) => {
 		setLastUpdate(message)
@@ -109,7 +103,7 @@ export default function App() {
 		.catch(() => setApiStatus('unreachable'))
 	}, [])
 
-	const tabs = ['scores', 'standings', 'match', 'pipeline']
+	const tabs = ['scores', 'standings', 'match', 'chat', 'pipeline']
 
 	const theme = LEAGUE_THEMES[selectedLeague] || LEAGUE_THEMES.epl
 
@@ -166,6 +160,7 @@ export default function App() {
 							}`}
 						>
 							{tab === 'match' ? 'Match Detail' :
+							tab === 'chat' ? 'Ask ScoreStream AI' :
 							tab === 'pipeline' ? 'Pipeline Health' : tab}
 						</button>
 						))}
@@ -229,6 +224,7 @@ export default function App() {
 			{activeTab === 'match' && (
 				<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} theme={theme} league={selectedLeague} />
 			)}
+			{activeTab === 'chat' && <ChatTab theme={theme} />}
 			{activeTab === 'pipeline' && <PipelineTab active={activeTab === 'pipeline'} />}
 			</main>
 

@@ -79,6 +79,7 @@ Airflow (parallel batch layer)
 | Kafka UI | 8090 | Topic and message inspection |
 | PostgreSQL | 5432 | Primary database |
 | Redis | 6379 | API response cache |
+| Chat API | 8000/chat | Natural language query endpoint |
 
 ---
 
@@ -113,6 +114,48 @@ A React single-page application with four views and a league selector:
 **Pipeline Health** — Internal dashboard showing status of every pipeline component — producer last poll, Kafka topic message counts, PostgreSQL row counts per table, and Airflow DAG last run status.
 
 Open the dashboard at `http://localhost:3000` after starting the stack.
+
+## Ask ScoreStream (AI Chat)
+
+A natural language interface powered by Claude that answers questions about live match data using ScoreStream's own PostgreSQL database.
+
+Users can ask questions in plain English and receive accurate, formatted answers drawn directly from the pipeline's data — no third-party sports API involved.
+
+**Example questions:**
+- "Who scored in Arsenal's last game?"
+- "Who is leading the Premier League?"
+- "Which games are live right now?"
+- "How many goals were scored in Ligue 1 today?"
+- "What's PSG's goal difference?"
+
+**How it works:**
+
+```
+User question
+    ↓
+Alias expansion (PSG → Paris Saint-Germain, etc.)
+    ↓
+Claude (SQL generation) — converts question to PostgreSQL query
+    ↓
+ScoreStream PostgreSQL — executes query against live pipeline data
+    ↓
+Claude (answer formatting) — converts raw rows to natural language
+    ↓
+Formatted response with emojis, line breaks, and scorer attribution
+```
+
+The chat feature uses a two-step Claude pipeline:
+
+1. **SQL generation** — Claude receives the question, the full database schema, example queries, and team alias mappings, then generates a safe read-only PostgreSQL query
+2. **Answer formatting** — Claude receives the raw query results and formats them into a readable response with proper scorer attribution (⚽ Goal / 🎯 Penalty / 🔴 Own Goal)
+
+Conversation history is passed with each request so follow-up questions like "what about their away form?" or "and in La Liga?" work correctly.
+
+**Safety measures:**
+- All generated SQL is checked for forbidden write operations before execution
+- Queries are limited to 20 rows maximum
+- Only `SELECT` statements are permitted — `DROP`, `DELETE`, `UPDATE`, `INSERT` are blocked
+- Input is validated and sanitized before being sent to Claude
 
 ## Data Model
 
@@ -152,6 +195,13 @@ Default credentials:
 - PostgreSQL: `admin` / `password`
 - Airflow UI: check logs on first startup for auto-generated password
 - Kafka UI: no authentication required
+
+Required environment variables/credentials:
+- `ANTHROPIC_API_KEY` — required for the AI chat feature. Get one at https://console.anthropic.com
+- `DATABASE_URL` — PostgreSQL connection string
+- `ALLOWED_ORIGINS` — CORS allowed origins (default: http://localhost:3000)
+
+Add these to a `.env` file in the project root — this file is gitignored and should never be committed.
 
 ### Verify everything is running
 
@@ -219,6 +269,7 @@ Building this project involved working through several non-trivial distributed s
 
 **datetime JSON serialization** — PostgreSQL returns Python `datetime` objects which are not JSON serializable by default. Added a serialization loop across all endpoints that converts any field with an `isoformat` method before caching or returning. The bug surfaced only for newly cached endpoints since existing cached responses returned the pre-serialized string values.
 
+**Text-to-SQL natural language interface** — Built a two-step Claude pipeline that converts natural language football questions into PostgreSQL queries against ScoreStream's own data. The first Claude call generates safe read-only SQL using schema context, example queries, and team alias mappings (PSG → Paris Saint-Germain, Spurs → Tottenham Hotspur, etc.). The second Claude call formats the raw database rows into readable natural language with proper goal attribution using a `CASE WHEN team_id = home_id` pattern to correctly identify which team each scorer played for. Conversation history is passed with each request enabling contextual follow-up questions.
 ---
 
 ## Project Structure
@@ -243,7 +294,7 @@ scorestream/
 ├── api/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── main.py                    # FastAPI + WebSocket endpoints
+│   └── main.py                    # FastAPI + WebSocket + /chat AI endpoint
 ├── frontend/
 │   ├── Dockerfile
 │   ├── package.json
