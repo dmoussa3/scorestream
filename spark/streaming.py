@@ -13,6 +13,8 @@ from pyspark.sql.types import (
 from datetime import timezone, datetime
 import time
 import redis
+from kafka import KafkaConsumer
+from kafka.errors import NoBrokersAvailable
 
 KAFKA_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 DATABASE_URL  = os.getenv("DATABASE_URL", "postgresql://admin:password@postgres:5432/scorestream")
@@ -32,7 +34,30 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel("WARN")
 print("[spark] SparkSession started")
-time.sleep(30)
+
+def wait_for_kafka(servers, retries=20, delay=15):
+    required_topics = {'sports.live.scores', 'sports.standings'}
+    
+    for i in range(retries):
+        try:
+            consumer = KafkaConsumer(bootstrap_servers=servers)
+            available_topics = consumer.topics()
+            consumer.close()
+            
+            missing = required_topics - available_topics
+            if not missing:
+                print(f"[spark] Kafka ready — all topics found: {required_topics}")
+                return True
+            
+            print(f"[spark] Waiting for topics: {missing} — retry {i+1}/{retries}")
+        except Exception as e:
+            print(f"[spark] Kafka not ready: {e} — retry {i+1}/{retries}")
+        
+        time.sleep(delay)
+    
+    raise RuntimeError(f"[spark] Required Kafka topics never became available")
+
+wait_for_kafka(KAFKA_SERVERS)
 
 goal_schema = ArrayType(StructType()
     .add("player_id", StringType())

@@ -46,7 +46,10 @@ services:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
-    command: "/bin/sh -c 'kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic sports.live.scores --partitions 3 --replication-factor 1 && kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic sports.standings --partitions 1 --replication-factor 1 && echo Topics created'"
+    command: >
+      "kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic sports.live.scores --partitions 3 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic sports.standings --partitions 1 --replication-factor 1 &&
+       echo 'Topics created successfully'"
     restart: "no"
 
   # ── Kafka UI (view topics/messages in browser) ──────────────────
@@ -116,10 +119,10 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/scorestream

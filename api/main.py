@@ -185,6 +185,19 @@ GROUP BY player_name
 ORDER BY goals DESC
 LIMIT 10;
 
+-- What is the goal difference for the bottom 3 teams in the Bundesliga?
+SELECT team_name, goal_diff, points, rank
+FROM standings
+WHERE league = 'bundesliga'
+ORDER BY goal_diff ASC
+LIMIT 3;
+
+-- Show me goal difference across all Premier League teams
+SELECT team_name, goal_diff
+FROM standings
+WHERE league = 'epl'
+ORDER BY goal_diff DESC;
+
 -- Which teams have the best goal difference in La Liga?
 SELECT team_name, goal_diff, points, rank
 FROM standings
@@ -738,6 +751,37 @@ def get_leagues():
     finally:        
         release_db(conn)
 
+## ── Natural Language Q&A ───────────────────────────────────────────
+
+CHART_SYSYTEM_PROMPT = """You are a data visualization expert for a football data pipeline application called ScoreStream.
+Given a natural language question and SQL query results, and decide if it is better answered with a chart.
+
+Return a JSON object with this exact format:
+{
+    "should_chart": true | false,
+    "chart_type": "line" | "bar" | "pie" | "none",
+    "title": "Chart Title" | null,
+    "x_axis": "x-axis field name" | null,
+    "y_axis": "y-axis field name" | null,
+    "data": [array of objects] | null,
+    "color": "#hexcolor" | null
+}
+
+Rules:
+- Use bar charts for comparisons (top scorers, standings, team comparisons)
+- Use line charts for trends over time (form over last N games, goals per gameweek)
+- Use pie charts for distributions (goals by league, win/draw/loss ratio)
+- should_chart = false for single-value results, scorer lists, or game recaps
+- data must be a simplified array — only include the fields needed for the chart
+- x_key and y_key must exactly match field names in the data array
+- y_key must exactly match the field name being visualized in the question
+- If the question asks about goal difference, y_key must be 'goal_diff' not 'points'
+- If the question asks about points, y_key must be 'points' not 'goal_diff'
+- Never substitute one metric for another — use exactly what the user asked for
+- Check the data fields carefully before setting x_key and y_key
+- Return ONLY valid JSON, no explanation, no markdown, no backticks
+"""
+
 def expand_aliases(question: str) -> str:
     q = question.lower()
     for alias, full in ALIAS_MAP.items():
@@ -805,7 +849,7 @@ def chat(request: Request, body: dict):
 
         forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE"]
         if any(word in sql.upper() for word in forbidden):
-            raise HTTPException(status_code=400, detail="I can only answer read-only questions about match data. Please rephrase your question.")
+            return {"answer": "I can only answer read-only questions about match data. Please rephrase your question.", "chart": None}
         
         conn = get_db()
         cursor = get_db_cursor(conn)
@@ -816,6 +860,18 @@ def chat(request: Request, body: dict):
             for k, v in row.items():
                 if hasattr(v, "isoformat"):
                     row[k] = v.isoformat()
+
+        if not rows:
+            return {"answer": "I couldn't find any data for that question.", "chart": None}
+        
+        chart_response = anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            system=CHART_SYSYTEM_PROMPT,
+            messages=[
+                {"role": "user", "content": f"Question: {expanded_question}\n\nData: {json.dumps(rows, default=str)}"}
+            ]
+        )
 
         answer_response = anthropic_client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -837,17 +893,33 @@ def chat(request: Request, body: dict):
             - Otherwise use ⚽
             - Keep any summary sentence brief — one line at most
             - If player_name is null for all rows, the game was a 0-0 draw — say so clearly
+            - When asked about goal difference always SELECT goal_diff not points
+            - When asked about form, points, or standings SELECT points
+            - Never substitute goal_diff with points or vice versa
+            - Always SELECT only the columns relevant to the question — 
+            if asking about goal difference, include goal_diff and team_name, not points
             - For 'what happened' questions give a full match summary:
             first the score, then list each scorer, then a brief one-line summary
             - Never mention SQL or databases
             - If data is empty say so clearly
             """,
             messages=[
-                {"role": "user", "content": f"Question: {question}\n\nData: {json.dumps(rows, default=str)}"}
+                {"role": "user", "content": f"Question: {expanded_question}\n\nData: {json.dumps(rows, default=str)}"}
             ]
         )
 
-        return {"answer": answer_response.content[0].text.strip(), "sql": sql}
+        chart = None
+        try:
+            chart_text = chart_response.content[0].text.strip()
+            chart_data = json.loads(chart_text)
+            
+            if chart_data.get("should_chart"):
+                chart = chart_data
+        except Exception as e:
+            print(f"[chat] Error decoding chart data: {e}")
+
+        return {"answer": answer_response.content[0].text.strip(), "sql": sql, "chart": chart}
+    
     except Exception as e:
         print(f"[chat] Error: {e}")
         return {"answer": "Sorry, I couldn't process your question. Try rephrasing it or ask something else about football matches."}

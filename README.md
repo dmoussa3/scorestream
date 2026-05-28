@@ -37,8 +37,7 @@ Python Producer
         ▼
 PySpark Structured Streaming
   ├── process_games     →  games table       (upsert, every 10s)
-  ├── process_goals     →  goals table       (deduplication via composite key)
-  └── process_standings →  standings table   (upsert per league, every 30s)
+  └── process_goals     →  goals table       (deduplication via composite key)
         │
         ▼
 PostgreSQL ←→ Redis (dynamic TTL)
