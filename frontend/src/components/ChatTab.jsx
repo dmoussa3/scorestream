@@ -16,8 +16,6 @@ const SUGGESTED_QUESTIONS = [
 ]
 
 function ChatChart({ chart, theme }) {
-    const xKey = chart.x_key || chart.x_axis
-    const yKey = chart.y_key || chart.y_axis
 
     // Parse data if it came back as a string
     const data = typeof chart.data === 'string'
@@ -25,6 +23,18 @@ function ChatChart({ chart, theme }) {
         : chart.data
 
     if (!chart?.should_chart || !data?.length) return null
+
+    const firstRow = data[0]
+    const allKeys = Object.keys(firstRow)
+
+    // Use config keys if they exist in data, otherwise auto-detect
+    const xKey = (chart.x_key && firstRow[chart.x_key] !== undefined)
+        ? chart.x_key
+        : allKeys.find(k => typeof firstRow[k] === 'string')
+
+    const yKey = (chart.y_key && firstRow[chart.y_key] !== undefined)
+        ? chart.y_key
+        : allKeys.find(k => typeof firstRow[k] === 'number' && k !== xKey)
 
     const COLORS = [
         theme.accent, '#8b5cf6', '#3b82f6', '#ef4444',
@@ -123,7 +133,7 @@ function ChatChart({ chart, theme }) {
 
     if (chart.chart_type === 'pie') {
         return (
-            <div style={{ width: '100%', height: 220 }}>
+            <div style={{ width: '100%', height: 240 }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie
@@ -147,8 +157,11 @@ function ChatChart({ chart, theme }) {
                                 backgroundColor: theme.primary,
                                 border: `1px solid ${theme.border}`,
                                 borderRadius: '8px',
-                                fontSize: '12px'
+                                fontSize: '12px',
+                                color: '#ffffff'
                             }}
+                            labelStyle={{ color: theme.secondary }}
+                            itemStyle={{ color: '#ffffff' }}
                         />
                         <Legend
                             wrapperStyle={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}
@@ -203,7 +216,17 @@ export default function ChatTab({ theme }) {
             setMessages(prev => [...prev, { role: "assistant", content: data.answer, chart: data.chart || null, sql: data.sql || null }]);
         } catch (error) {
             console.error('Error sending message:', error);
-            setMessages(prev => [...prev, { role: "assistant", content: "Sorry, something went wrong. Please try again.", chart: null }]);
+
+            let chart = data.chart || null
+            if (chart) {
+                chart = {
+                    ...chart,
+                    x_key: chart.x_key || chart.x_axis || chart.xKey || chart.x || null,
+                    y_key: chart.y_key || chart.y_axis || chart.yKey || chart.y || null,
+                }
+            }
+
+            setMessages(prev => [...prev, { role: "assistant", content: data.answer, chart: data.chart || null, sql: data.sql || null }]);
         } finally {
             setLoading(false);
         }
@@ -217,7 +240,7 @@ export default function ChatTab({ theme }) {
     }
 
     return (
-        <div className="max-w-4xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 180px)' }}>
+        <div className="max-w-6xl mx-auto flex flex-col" px-5 style={{ height: 'calc(100vh - 180px)' }}>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto space-y-4 pb-4">
@@ -227,8 +250,8 @@ export default function ChatTab({ theme }) {
                         {/* Text bubble */}
                         <div
                             style={msg.role === 'user'
-                                ? { backgroundColor: theme.accent, color: theme.primary }
-                                : { backgroundColor: theme.secondary, color: 'white', borderColor: theme.border }
+                                ? { backgroundColor: theme.accent, color: theme.primary, borderColor: theme.primary }
+                                : { backgroundColor: theme.secondary, color: 'white', borderColor: theme.primary }
                             }
                             className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl text-sm ${
                                 msg.role === 'assistant' ? 'border' : ''
@@ -245,7 +268,7 @@ export default function ChatTab({ theme }) {
                         {/* Chart — full width, outside the bubble */}
                         {msg.role === 'assistant' && msg.chart?.should_chart && (
                             <div
-                                style={{ backgroundColor: theme.secondary, borderColor: theme.border }}
+                                style={{ backgroundColor: theme.secondary, borderColor: theme.primary }}
                                 className="border rounded-2xl mt-2 p-4 w-full"
                             >
                                 <ChatChart chart={msg.chart} theme={theme} />
@@ -256,7 +279,7 @@ export default function ChatTab({ theme }) {
                         {msg.role === 'assistant' && msg.sql && (
                             <button
                                 onClick={() => toggleSql(i)}
-                                style={{ color: theme.primary }}
+                                style={{ color: theme.secondary }}
                                 className="text-xs mt-1 opacity-60 hover:opacity-100 transition-opacity self-start"
                             >
                                 {showSql[i] ? 'hide query' : 'show query'}
@@ -265,7 +288,7 @@ export default function ChatTab({ theme }) {
 
                         {msg.sql && showSql[i] && (
                             <pre
-                                style={{ backgroundColor: theme.primary, borderColor: theme.border, color: theme.primary }}
+                                style={{ backgroundColor: theme.primary, borderColor: theme.border, color: theme.accent }}
                                 className="text-xs mt-1 p-3 rounded-lg border overflow-x-auto w-full"
                             >
                                 {msg.sql}
@@ -315,7 +338,7 @@ export default function ChatTab({ theme }) {
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="Ask about scores, standings, or goal scorers..."
-                    className="flex-1 bg-transparent text-white text-sm outline-none placeholder-gray-500"
+                    className="flex-1 bg-transparent text-white text-sm outline-none placeholder-white"
                 />
                 <button
                     onClick={() => sendMessage()}

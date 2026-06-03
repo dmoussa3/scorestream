@@ -105,7 +105,7 @@ goals (
     team_id         VARCHAR NOT NULL,
     minute          VARCHAR,
     seconds         INT,
-    goal_type       VARCHAR,  -- e.g., "Volley", "Penalty", "Own Goal"
+    goal_type       VARCHAR,  -- e.g., "Goal, Goal - Volley, Goal - Header, Penalty - Scored, Goal - Free-kick"
     own_goal        BOOLEAN DEFAULT FALSE,
     penalty_goal    BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMP DEFAULT NOW(),
@@ -756,16 +756,18 @@ def get_leagues():
 CHART_SYSYTEM_PROMPT = """You are a data visualization expert for a football data pipeline application called ScoreStream.
 Given a natural language question and SQL query results, and decide if it is better answered with a chart.
 
-Return a JSON object with this exact format:
+Return a JSON object with EXACTLY these field names — no variations:
 {
-    "should_chart": true | false,
-    "chart_type": "line" | "bar" | "pie" | "none",
-    "title": "Chart Title" | null,
-    "x_axis": "x-axis field name" | null,
-    "y_axis": "y-axis field name" | null,
-    "data": [array of objects] | null,
+    "should_chart": true or false,
+    "chart_type": "bar" | "line" | "pie" | null,
+    "title": "Chart title" | null,
+    "x_key": "field name for x axis" | null,
+    "y_key": "field name for y axis" | null,
+    "data": [ array of objects ] | null,
     "color": "#hexcolor" | null
 }
+
+CRITICAL: Use exactly "x_key" and "y_key" — never "x_axis", "y_axis", "xKey", "yKey" or any other variation.
 
 Rules:
 - Use bar charts for comparisons (top scorers, standings, team comparisons)
@@ -823,14 +825,18 @@ def chat(request: Request, body: dict):
             This catches any completed status including abandoned games
             - For questions like 'what happened', 'tell me about', 'how did it go', 'recap' — 
             always JOIN goals and include scorer information, not just the final score
+            - Any question about open play goals, they refer to any goal in the goals table where penalty_goal = false and the goal_type does not contain 'Penalty' or 'Free-kick' — do not assume that goal_type will always include the word 'Goal' for open play goals, as there are many variations in the data
             - Any question about a specific game should always include goal scorer data via LEFT JOIN
             - Return ONLY the SQL query, no explanation, no markdown, no backticks
+            - When asked to give information about data over the course of a period of time, if the data doesn't go that far back, use data from the database that goes as far back as possible instead of just saying there's not enough data
             - Use ILIKE for team name searches — always search both home_team_name and away_team_name
             - When a user mentions a team by nickname or acronym, expand it to the full ESPN name using the aliases above
             - For partial name matches use ILIKE '%partial%' — e.g. 'Paris Saint-Germain' → ILIKE '%Paris Saint-Germain%'
             - For 'last game' use ORDER BY start_time DESC LIMIT 1 on completed games
             - For 'today' use CURRENT_DATE
             - For 'this week' use start_time >= CURRENT_DATE - INTERVAL '7 days'
+            - When asked questions like for any upcoming games soon, look for games with the status='STATUS_SCHEDULED' and start_time in the future, ordered by start_time ASC
+            - When asked about games that are or were live today, or live right now, look for games with start_time = CURRENT_DATE
             - Limit results to 20 rows maximum
             - For league names use: epl, laliga, bundesliga, seriea, ligue1
             - Never use DROP, DELETE, UPDATE, INSERT or any write operations
@@ -862,7 +868,25 @@ def chat(request: Request, body: dict):
                     row[k] = v.isoformat()
 
         if not rows:
-            return {"answer": "I couldn't find any data for that question.", "chart": None}
+            # Detect what kind of question it was and return appropriate message
+            q_lower = expanded_question.lower()
+            
+            if any(word in q_lower for word in ['live', 'in progress', 'playing now', 'currently playing']):
+                empty_message = "There are no live games right now. Check back during a matchday."
+            elif any(word in q_lower for word in ['upcoming', 'next', 'tomorrow', 'today', 'schedule', 'fixture']):
+                empty_message = "There are no upcoming games in the database at the moment. The producer polls ESPN every 30 seconds so fixtures should appear shortly before matchday."
+            elif any(word in q_lower for word in ['goal', 'score', 'scored', 'scorer']):
+                empty_message = "No goals found for that query. The game may not have started yet or no goals have been scored."
+            elif any(word in q_lower for word in ['standing', 'table', 'rank', 'position']):
+                empty_message = "No standings data found for that league. Try triggering the standings DAG or wait for the next scheduled refresh."
+            else:
+                empty_message = "I couldn't find any data matching that query. Try rephrasing or asking about a different league or time period."
+
+            return {
+                "answer": empty_message,
+                "chart":  None,
+                "sql":    sql,
+            }
         
         chart_response = anthropic_client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -893,7 +917,9 @@ def chat(request: Request, body: dict):
             - Otherwise use ⚽
             - Keep any summary sentence brief — one line at most
             - If player_name is null for all rows, the game was a 0-0 draw — say so clearly
+            - When asked about upcoming games or games right now, if the data shows no games, say something like 'There are no scheduled games for that period.' or 'There are no scheduled games today.', rather than "No data found."
             - When asked about goal difference always SELECT goal_diff not points
+            - When asked about open play goals, that includes any goal where penalty_goal = false and goal_type does not contain 'Penalty' or 'Free-kick', there's no other type of goal in the data, so if the question is about open play goals SELECT all goals that are not penalties or free-kicks, or from other set pieces
             - When asked about form, points, or standings SELECT points
             - Never substitute goal_diff with points or vice versa
             - Always SELECT only the columns relevant to the question — 
