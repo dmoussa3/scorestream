@@ -75,6 +75,7 @@ services:
       POSTGRES_DB: scorestream
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      FOOTBALL_DATA_ORG_API_KEY: ${FOOTBALL_DATA_ORG_API_KEY}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -110,6 +111,7 @@ services:
       POLL_INTERVAL_SECONDS: 15
       PLAYER_DATA_API_KEY: 17eb7ad52249415a860412e6436ccff9
       DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/scorestream
+      FOOTBALL_DATA_ORG_API_KEY: ${FOOTBALL_DATA_ORG_API_KEY}
     restart: unless-stopped
 
   # ── Spark Streaming (processes data [games/goals] from Kafka) ──────────────────

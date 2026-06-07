@@ -93,6 +93,7 @@ games (
     status          VARCHAR NOT NULL,  -- STATUS_SCHEDULED, STATUS_IN_PROGRESS, STATUS_FULL_TIME, STATUS_ABANDONED
     status_detail   VARCHAR,
     start_time      TIMESTAMP,
+    matchday        INTEGER DEFAULT 0,
     last_updated    TIMESTAMP DEFAULT NOW()
 )
 
@@ -129,6 +130,25 @@ standings (
 
     PRIMARY KEY (team_id, league)
 )
+
+season_stats (
+    player_id    VARCHAR,
+    player_name  VARCHAR,
+    team_id      VARCHAR,
+    team_name    VARCHAR,
+    league       VARCHAR,        -- 'epl', 'laliga', etc.
+    season       INTEGER,        -- start year e.g. 2025 for 2025/26
+    goals        INTEGER,        -- total goals scored in the season
+    assists      INTEGER,
+    penalties    INTEGER,        -- penalty goals included in total
+    last_updated TIMESTAMP,
+    PRIMARY KEY (player_id, league, season)
+)
+
+NOTE: season_stats contains aggregated totals from football-data.org.
+Use this table for questions like 'who is the top scorer this season'
+or 'how many goals has Haaland scored'. Do NOT use the goals table
+for season total queries — it only contains recent match events from ESPN.
 
 Example queries:
 
@@ -213,6 +233,31 @@ WHERE DATE(gm.start_time) = CURRENT_DATE
 AND g.own_goal = false
 GROUP BY g.league;
 
+-- Show me PSG's form over their last 5 games
+SELECT 
+    CASE 
+        WHEN gm.home_team_name ILIKE '%Paris Saint-Germain%' THEN gm.away_team_name
+        WHEN gm.away_team_name ILIKE '%Paris Saint-Germain%' THEN gm.home_team_name
+    END AS opponent,                          -- ← use opponent as x-axis label
+    TO_CHAR(gm.start_time, 'Mon DD') AS match_date,  -- ← formatted date as readable label
+    CASE
+        WHEN gm.home_team_name ILIKE '%Paris Saint-Germain%' THEN
+            CASE WHEN gm.home_score > gm.away_score THEN 3
+                 WHEN gm.home_score = gm.away_score THEN 1
+                 ELSE 0 END
+        WHEN gm.away_team_name ILIKE '%Paris Saint-Germain%' THEN
+            CASE WHEN gm.away_score > gm.home_score THEN 3
+                 WHEN gm.away_score = gm.home_score THEN 1
+                 ELSE 0 END
+    END AS points_earned,
+    gm.start_time
+FROM games gm
+WHERE (gm.home_team_name ILIKE '%Paris Saint-Germain%' 
+    OR gm.away_team_name ILIKE '%Paris Saint-Germain%')
+AND gm.status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF')
+ORDER BY gm.start_time ASC
+LIMIT 5;
+
 -- Who scored in Arsenal's last game?
 SELECT 
     g.player_name,
@@ -278,6 +323,57 @@ AND gm.game_id = (
     LIMIT 1
 )
 ORDER BY gl.seconds ASC;
+
+-- Who is the top scorer in Ligue 1?
+SELECT 
+    gl.player_name,
+    COUNT(*) as goals,
+    MAX(CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+    END) as team_name
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE gm.league = 'ligue1'
+AND gl.own_goal = false
+GROUP BY gl.player_name
+ORDER BY goals DESC
+LIMIT 1;
+
+-- Who are the top 10 scorers in the Premier League?
+SELECT 
+    gl.player_name,
+    COUNT(*) as goals,
+    MAX(CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+    END) as team_name
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE gm.league = 'epl'
+AND gl.own_goal = false
+GROUP BY gl.player_name
+ORDER BY goals DESC
+LIMIT 10;
+
+-- Who is the top scorer in the Bundesliga this season?
+SELECT player_name, team_name, goals, assists, penalties
+FROM season_stats
+WHERE league = 'bundesliga' AND season = 2025
+ORDER BY goals DESC
+LIMIT 10;
+
+-- Who has the most assists in the Premier League?
+SELECT player_name, team_name, assists
+FROM season_stats
+WHERE league = 'epl' AND season = 2025
+ORDER BY assists DESC
+LIMIT 10;
+
+-- Show me a player's full stats
+SELECT player_name, team_name, goals, assists, penalties
+FROM season_stats
+WHERE player_name ILIKE '%Mbappe%' AND season = 2025;
 """
 
 TEAM_ALIASES = """
@@ -771,13 +867,18 @@ CRITICAL: Use exactly "x_key" and "y_key" — never "x_axis", "y_axis", "xKey", 
 
 Rules:
 - Use bar charts for comparisons (top scorers, standings, team comparisons)
-- Use line charts for trends over time (form over last N games, goals per gameweek)
-- Use pie charts for distributions (goals by league, win/draw/loss ratio)
+- Use line charts for trends over time, especially when asked about form (form over last N games, goals per gameweek)
+- Use pie charts for distributions (goals by league, win/draw/loss ratio, goal types breakdown)
+- Never use timestamp or datetime fields (start_time, last_updated, created_at) as x_key
+- For time-based charts use a formatted date string column like match_date or formatted_date
+- For form charts x_key should be 'opponent' or 'match_date', y_key should be 'points'
+- For form charts and the y_key should always be 'points' (3 for win, 1 for draw, 0 for loss) - no need to use decimals
 - should_chart = false for single-value results, scorer lists, or game recaps
 - data must be a simplified array — only include the fields needed for the chart
 - x_key and y_key must exactly match field names in the data array
 - y_key must exactly match the field name being visualized in the question
 - If the question asks about goal difference, y_key must be 'goal_diff' not 'points'
+- If the questions asks about form, y_key must be 'points' not 'goal_diff'
 - If the question asks about points, y_key must be 'points' not 'goal_diff'
 - Never substitute one metric for another — use exactly what the user asked for
 - Check the data fields carefully before setting x_key and y_key
@@ -810,7 +911,7 @@ def chat(request: Request, body: dict):
 
         sql_response = anthropic_client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=500,
+            max_tokens=1500,
             system=f"""You are a SQL expert for a football data pipeline application called ScoreStream. 
             Given a natural language question, write a PostgreSQL query to answer it based on the following database schema:\n
             {DB_SCHEMA}
@@ -825,6 +926,15 @@ def chat(request: Request, body: dict):
             This catches any completed status including abandoned games
             - For questions like 'what happened', 'tell me about', 'how did it go', 'recap' — 
             always JOIN goals and include scorer information, not just the final score
+            - When asked about "top goal scorers" or "who scored the most goals", use the season_stats table, not the goals table, since the goals table only contains recent events and may not have complete season data, same goes for questions about assists and penalties
+            - When asked about the current season's stats for a player, use the season_stats table, not the goals table
+            - When asked about a team's form over a period of time, use points as the metric, not goals scored
+            - ONLY use these tables: games, goals, standings — never reference any other table
+            - Never use tables like season_stats, player_stats, match_stats or any table not in the schema above
+            - Never filter by season year — the database contains whatever data has been ingested, no season column exists
+            - For top scorer queries always COUNT(*) from the goals table joined with games
+            - Never use season = 2024 when checking season stats, use season = 2025 for the 2025/26 season since season is defined as the start year in the schema
+            - Always filter out own goals with AND gl.own_goal = false when counting goals for a player
             - Any question about open play goals, they refer to any goal in the goals table where penalty_goal = false and the goal_type does not contain 'Penalty' or 'Free-kick' — do not assume that goal_type will always include the word 'Goal' for open play goals, as there are many variations in the data
             - Any question about a specific game should always include goal scorer data via LEFT JOIN
             - Return ONLY the SQL query, no explanation, no markdown, no backticks
@@ -835,6 +945,10 @@ def chat(request: Request, body: dict):
             - For 'last game' use ORDER BY start_time DESC LIMIT 1 on completed games
             - For 'today' use CURRENT_DATE
             - For 'this week' use start_time >= CURRENT_DATE - INTERVAL '7 days'
+            - For form queries always include an 'opponent' column as the x-axis label
+            - For form queries use 'points_earned' as the y-axis (3=Win, 1=Draw, 0=Loss)
+            - Format dates using TO_CHAR(start_time, 'Mon DD') for readable labels
+            - Never use raw timestamp fields as x-axis labels for charts
             - When asked questions like for any upcoming games soon, look for games with the status='STATUS_SCHEDULED' and start_time in the future, ordered by start_time ASC
             - When asked about games that are or were live today, or live right now, look for games with start_time = CURRENT_DATE
             - Limit results to 20 rows maximum
@@ -875,8 +989,6 @@ def chat(request: Request, body: dict):
                 empty_message = "There are no live games right now. Check back during a matchday."
             elif any(word in q_lower for word in ['upcoming', 'next', 'tomorrow', 'today', 'schedule', 'fixture']):
                 empty_message = "There are no upcoming games in the database at the moment. The producer polls ESPN every 30 seconds so fixtures should appear shortly before matchday."
-            elif any(word in q_lower for word in ['goal', 'score', 'scored', 'scorer']):
-                empty_message = "No goals found for that query. The game may not have started yet or no goals have been scored."
             elif any(word in q_lower for word in ['standing', 'table', 'rank', 'position']):
                 empty_message = "No standings data found for that league. Try triggering the standings DAG or wait for the next scheduled refresh."
             else:

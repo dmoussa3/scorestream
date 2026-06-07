@@ -36,6 +36,12 @@ function ChatChart({ chart, theme }) {
         ? chart.y_key
         : allKeys.find(k => typeof firstRow[k] === 'number' && k !== xKey)
 
+
+    console.log('[ChatChart] type:', chart.chart_type)
+    console.log('[ChatChart] xKey:', xKey, 'yKey:', yKey)
+    console.log('[ChatChart] data:', data)
+    console.log('[ChatChart] first row keys:', Object.keys(data?.[0] || {}))
+
     const COLORS = [
         theme.accent, '#8b5cf6', '#3b82f6', '#ef4444',
         '#f97316', '#10b981', '#f59e0b', '#06b6d4'
@@ -93,7 +99,7 @@ function ChatChart({ chart, theme }) {
         return (
             <div style={{ width: '100%', height: 220 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                    <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                         <XAxis
                             dataKey={xKey}
@@ -114,7 +120,7 @@ function ChatChart({ chart, theme }) {
                                 fontSize: '12px',
                                 color: '#ffffff'
                             }}
-                            labelStyle={{ color: theme.secondary }}
+                            labelStyle={{ color: theme.accent }}
                             itemStyle={{ color: '#ffffff' }}
                         />
                         <Line
@@ -160,7 +166,7 @@ function ChatChart({ chart, theme }) {
                                 fontSize: '12px',
                                 color: '#ffffff'
                             }}
-                            labelStyle={{ color: theme.secondary }}
+                            labelStyle={{ color: theme.accent }}
                             itemStyle={{ color: '#ffffff' }}
                         />
                         <Legend
@@ -240,7 +246,7 @@ export default function ChatTab({ theme }) {
     }
 
     return (
-        <div className="max-w-6xl mx-auto flex flex-col" px-5 style={{ height: 'calc(100vh - 180px)' }}>
+        <div className="max-w-6xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 180px)' }}>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto space-y-4 pb-4">

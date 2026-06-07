@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS games (
     status          VARCHAR NOT NULL,  -- STATUS_SCHEDULED, STATUS_IN_PROGRESS, STATUS_FINAL
     status_detail   VARCHAR,
     start_time      TIMESTAMP,
+    matchday        INTEGER,
     last_updated    TIMESTAMP DEFAULT NOW()
 );
 
@@ -37,6 +38,21 @@ CREATE TABLE IF NOT EXISTS goals (
     created_at      TIMESTAMP DEFAULT NOW(),
 
     UNIQUE(game_id, player_id, minute, goal_type)
+);
+
+-- ── Season Stats ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS season_stats (
+    player_id     VARCHAR,
+    player_name   VARCHAR,
+    team_id       VARCHAR,
+    team_name     VARCHAR,
+    league        VARCHAR,
+    season        INTEGER,
+    goals         INTEGER DEFAULT 0,
+    assists       INTEGER DEFAULT 0,
+    penalties     INTEGER DEFAULT 0,
+    last_updated  TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (player_id, league, season)
 );
 
 -- ── Standings ───────────────────────────────────────────────────────

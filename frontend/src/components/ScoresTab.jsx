@@ -181,6 +181,8 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
     }
 
     function TeamLogo({ teamId, team, size=10 }) {
+        const espnId = teamId?.toString().replace('fd_', '')
+        
         return (
             <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center flex-shrink-0">
