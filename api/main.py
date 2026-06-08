@@ -249,7 +249,7 @@ SELECT
             CASE WHEN gm.away_score > gm.home_score THEN 3
                  WHEN gm.away_score = gm.home_score THEN 1
                  ELSE 0 END
-    END AS points_earned,
+    END AS points,
     gm.start_time
 FROM games gm
 WHERE (gm.home_team_name ILIKE '%Paris Saint-Germain%' 
@@ -374,6 +374,18 @@ LIMIT 10;
 SELECT player_name, team_name, goals, assists, penalties
 FROM season_stats
 WHERE player_name ILIKE '%Mbappe%' AND season = 2025;
+
+-- Show me Barcelona's last game (NOT Espanyol)
+SELECT gm.home_team_name, gm.away_team_name, gm.home_score, gm.away_score, gm.start_time
+FROM games gm
+WHERE (
+    (gm.home_team_name ILIKE '%Barcelona%' AND gm.home_team_name NOT ILIKE '%Espanyol%')
+    OR
+    (gm.away_team_name ILIKE '%Barcelona%' AND gm.away_team_name NOT ILIKE '%Espanyol%')
+)
+AND gm.status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF')
+ORDER BY gm.start_time DESC
+LIMIT 1;
 """
 
 TEAM_ALIASES = """
@@ -871,8 +883,7 @@ Rules:
 - Use pie charts for distributions (goals by league, win/draw/loss ratio, goal types breakdown)
 - Never use timestamp or datetime fields (start_time, last_updated, created_at) as x_key
 - For time-based charts use a formatted date string column like match_date or formatted_date
-- For form charts x_key should be 'opponent' or 'match_date', y_key should be 'points'
-- For form charts and the y_key should always be 'points' (3 for win, 1 for draw, 0 for loss) - no need to use decimals
+- For form charts x_key should be 'opponent', y_key should be 'points'
 - should_chart = false for single-value results, scorer lists, or game recaps
 - data must be a simplified array — only include the fields needed for the chart
 - x_key and y_key must exactly match field names in the data array
@@ -936,6 +947,17 @@ def chat(request: Request, body: dict):
             - Never use season = 2024 when checking season stats, use season = 2025 for the 2025/26 season since season is defined as the start year in the schema
             - Always filter out own goals with AND gl.own_goal = false when counting goals for a player
             - Any question about open play goals, they refer to any goal in the goals table where penalty_goal = false and the goal_type does not contain 'Penalty' or 'Free-kick' — do not assume that goal_type will always include the word 'Goal' for open play goals, as there are many variations in the data
+            - When searching for FC Barcelona specifically, always use:
+            (home_team_name ILIKE '%Barcelona%' AND home_team_name NOT ILIKE '%Espanyol%')
+            Never use ILIKE '%Barcelona%' alone as it matches Espanyol de Barcelona
+            - Similarly for other teams whose names appear inside other team names:
+            AC Milan: use ILIKE '%Milan%' AND NOT ILIKE '%Inter%'
+            Real Madrid: use ILIKE '%Real Madrid%' (specific enough already)
+            Real Betis: use ILIKE '%Betis%' not ILIKE '%Real%'
+            Real Sociedad: use ILIKE '%Sociedad%' not ILIKE '%Real%'
+            - When the question mentions 'FC Barcelona', always exclude Espanyol:
+            home_team_name ILIKE '%Barcelona%' AND home_team_name NOT ILIKE '%Espanyol%'
+            - When the question mentions 'RCD Espanyol' or 'Espanyol', use ILIKE '%Espanyol%' alone
             - Any question about a specific game should always include goal scorer data via LEFT JOIN
             - Return ONLY the SQL query, no explanation, no markdown, no backticks
             - When asked to give information about data over the course of a period of time, if the data doesn't go that far back, use data from the database that goes as far back as possible instead of just saying there's not enough data
@@ -946,7 +968,7 @@ def chat(request: Request, body: dict):
             - For 'today' use CURRENT_DATE
             - For 'this week' use start_time >= CURRENT_DATE - INTERVAL '7 days'
             - For form queries always include an 'opponent' column as the x-axis label
-            - For form queries use 'points_earned' as the y-axis (3=Win, 1=Draw, 0=Loss)
+            - For form queries use 'points' as the y-axis (3=Win, 1=Draw, 0=Loss)
             - Format dates using TO_CHAR(start_time, 'Mon DD') for readable labels
             - Never use raw timestamp fields as x-axis labels for charts
             - When asked questions like for any upcoming games soon, look for games with the status='STATUS_SCHEDULED' and start_time in the future, ordered by start_time ASC

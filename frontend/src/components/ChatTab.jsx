@@ -53,13 +53,17 @@ function ChatChart({ chart, theme }) {
         return (
             <div style={{ width: '100%', height: 220 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                    <BarChart data={data} margin={{ top: 5, right: 20, left: 40, bottom: 40 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                         <XAxis
                             dataKey={xKey}
                             type="category"
                             tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }}
                             tickLine={false}
+                            interval={0}              // ← force every label to show
+                            angle={-35}               // ← angle to prevent overlap
+                            textAnchor="end"          // ← anchor text correctly when angled
+                            height={60}               // ← give more room for angled labels
                         />
                         <YAxis
                             tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }}
@@ -97,14 +101,18 @@ function ChatChart({ chart, theme }) {
 
     if (chart.chart_type === 'line') {
         return (
-            <div style={{ width: '100%', height: 220 }}>
+            <div style={{ width: '100%', height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                    <LineChart data={data} margin={{ top: 5, right: 20, left: 40, bottom: 40 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                         <XAxis
                             dataKey={xKey}
                             tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }}
                             tickLine={false}
+                            interval={0}              // ← force every label to show
+                            angle={-35}               // ← angle to prevent overlap
+                            textAnchor="end"          // ← anchor text correctly when angled
+                            height={60}               // ← give more room for angled labels
                         />
                         <YAxis
                             tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }}
@@ -259,7 +267,7 @@ export default function ChatTab({ theme }) {
                                 ? { backgroundColor: theme.accent, color: theme.primary, borderColor: theme.primary }
                                 : { backgroundColor: theme.secondary, color: 'white', borderColor: theme.primary }
                             }
-                            className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl text-sm ${
+                            className={`max-w-xs lg:max-w-md px-4 py-3 border rounded-2xl text-sm ${
                                 msg.role === 'assistant' ? 'border' : ''
                             }`}
                         >
