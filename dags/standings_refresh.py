@@ -12,7 +12,8 @@ LEAGUES = {
     'laliga': 'esp.1',
     'bundesliga': 'ger.1',
     'seriea': 'ita.1',
-    'ligue1': 'fra.1'
+    'ligue1': 'fra.1',
+    'worldcup': 'fifa.world'
 }
 
 def fetch_standings(league_name: str, league_id: str):
@@ -26,7 +27,10 @@ def fetch_standings(league_name: str, league_id: str):
         standings = []
 
         for group in resp.json().get('children', []):
+            name = group.get('name', '')
+            print(f"[airflow] Found group: {name}")  # ← debug
             for entry in group.get('standings', {}).get('entries', []):
+                entry['_group_name'] = name  # Add group name to each entry for context
                 standings.append(entry)
         return standings
     except requests.RequestException as e:
@@ -37,11 +41,16 @@ def parse_standings(entry: dict, league_name: str):
     try:
         stats = {s['name']: s['value'] for s in entry.get('stats', []) if 'value' in s}
         team = entry['team']
+        note = entry.get('note', {})
+
+        logos = team.get('logos', [])
+        logo_url = logos[0]['href'] if logos else None
 
         return {
             'team_id': team['id'],
             'league': league_name,
             'team_name': team['displayName'],
+            'group_name': entry.get('_group_name', None),
             'wins': int(stats.get('wins', 0)),
             'losses': int(stats.get('losses', 0)),
             'draws': int(stats.get('ties', 0)),
@@ -51,7 +60,10 @@ def parse_standings(entry: dict, league_name: str):
             'goal_diff': int(stats.get('pointDifferential', 0)),
             'matches_played': int(stats.get('gamesPlayed', 0)),
             "rank": int(stats.get("rank", 0)),
-            'deductions': int(stats.get('deductions', 0))
+            'deductions': int(stats.get('deductions', 0)),
+            'note': note.get('description', None),
+            'logo_url': logo_url,
+            'note_color': note.get('color', None) 
         }
     except (KeyError, ValueError) as e:
         print(f"Error parsing standings entry: {e}")
@@ -75,12 +87,13 @@ def refresh_all_standings(**context):
             for record in records:
                 cursor.execute("""
                     INSERT INTO standings (
-                        team_id, league, team_name, wins, draws, losses,
+                        team_id, league, team_name, group_name, wins, draws, losses,
                         points, goals_for, goals_against, goal_diff,
-                        matches_played, rank, last_updated
+                        matches_played, rank, note, note_color, logo_url, last_updated
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (team_id, league) DO UPDATE SET
+                        group_name     = EXCLUDED.group_name,
                         wins           = EXCLUDED.wins,
                         draws          = EXCLUDED.draws,
                         losses         = EXCLUDED.losses,
@@ -90,11 +103,15 @@ def refresh_all_standings(**context):
                         goal_diff      = EXCLUDED.goal_diff,
                         matches_played = EXCLUDED.matches_played,
                         rank           = EXCLUDED.rank,
+                        note           = EXCLUDED.note,
+                        note_color     = EXCLUDED.note_color,
+                        logo_url       = EXCLUDED.logo_url,
                         last_updated   = NOW()
                 """, (
                     record["team_id"],
                     record["league"],
                     record["team_name"],
+                    record["group_name"],
                     record["wins"],
                     record["draws"],
                     record["losses"],
@@ -103,7 +120,10 @@ def refresh_all_standings(**context):
                     record["goals_against"],
                     record["goal_diff"],
                     record["matches_played"],
-                    record["rank"]
+                    record["rank"],
+                    record["note"],
+                    record["note_color"],
+                    record["logo_url"]
                 ))
             
             total += len(records)

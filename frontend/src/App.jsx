@@ -13,7 +13,8 @@ const LEAGUES_NAMES = {
 	'laliga': 'La Liga 🇪🇸',
 	'bundesliga': 'Bundesliga 🇩🇪',
 	'seriea': 'Serie A 🇮🇹',
-	'ligue1': 'Ligue 1 🇫🇷'
+	'ligue1': 'Ligue 1 🇫🇷',
+	'worldcup': 'World Cup 🌍',
 }
 
 const LEAGUE_THEMES = {
@@ -67,6 +68,14 @@ const LEAGUE_THEMES = {
 		away: 	 	'#ffcccb',
         name:       'Ligue 1',
     },
+	worldcup: {
+        primary:   '#003580',   // FIFA blue
+        secondary: '#002060',
+        accent:    '#ffd700',   // gold
+        border:    '#004aad',
+        text:      '#ffd700',
+        name:      'World Cup',
+    },
 }
 
 const LEAGUE_COLORS = {
@@ -75,6 +84,7 @@ const LEAGUE_COLORS = {
     bundesliga: { bg: '#d3010c', text: '#ffffff', border: '#ffffff' },
     seriea:     { bg: '#1a1a2e', text: '#0096ff', border: '#0096ff' },
     ligue1:     { bg: '#003189', text: '#ffffff', border: '#ffffff' },
+    worldcup:   { bg: '#003580', text: '#ffd700', border: '#ffd700' },
 }
 
 export default function App() {
@@ -83,7 +93,7 @@ export default function App() {
 	const [selectedGameId, setSelectedGameId] = useState(null)
 	const [lastUpdate, setLastUpdate] = useState(null)
 	const [selectedLeague, setSelectedLeague] = useState('epl')
-	const availableLeagues = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1']
+	const availableLeagues = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1', 'worldcup']
 
 	const handleWebSocketMessage = useCallback((message) => {
 		setLastUpdate(message)

@@ -1,6 +1,6 @@
 import { useGameWatcher } from '../hooks/useGameWatcher'
 import { useNotifications } from '../hooks/useNotifications'
-import { use, useCallback, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useState, useRef } from 'react'
 import { useSubscriptions } from '../hooks/useSubscriptions'
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
@@ -152,6 +152,43 @@ function Section({ title, accent, games, onSelect, isSubscribed, onToggleSubscri
     )
 }
 
+function TeamLogo({ teamId, team, size=10, isNational = false }) {
+    const [imgSrc, setImgSrc] = useState(
+        `https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`
+    )
+
+    const attemptedFallback = useRef(false)
+
+    const handleError = () => {
+        if (attemptedFallback.current || !isNational) {
+            // Second attempt also failed — just hide
+            setImgSrc(null)
+            return
+        }
+        attemptedFallback.current = true
+        setImgSrc(
+            `https://a.espncdn.com/i/teamlogos/countries/500/${team?.toLowerCase().replace(/ /g, '-')}.png`
+        )
+    }
+
+    if (!imgSrc) return (
+        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center flex-shrink-0" />
+    )
+        
+    return (
+        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
+            <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                <img
+                    src={imgSrc}
+                    alt={team}
+                    className={`w-${size} h-${size} object-contain`}
+                    onError={handleError}
+                />
+            </div>
+        </div>
+    )
+}
+
 function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notificationsActive, theme }) {
     const isLive = LIVE_STATUSES.includes(game.status)
     const isFinal = FINAL_STATUSES.includes(game.status)
@@ -178,23 +215,6 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
         if (formattedTime) return 'KO'
 
         return 'TBD'
-    }
-
-    function TeamLogo({ teamId, team, size=10 }) {
-        const espnId = teamId?.toString().replace('fd_', '')
-        
-        return (
-            <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
-                 <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center flex-shrink-0">
-                    <img
-                        src={`https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`}
-                        alt={team}
-                        className={`w-${size} h-${size} object-contain`}
-                        onError={(e) => {e.target.style.display = 'none'}}
-                    />
-                 </div>
-            </div>
-        )
     }
 
     return (
@@ -247,7 +267,7 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
 
                 {/* Home team */}
                 <div className="flex-1 flex flex-col items-center gap-1 pr-4">
-                    <TeamLogo teamId={game.home_id} team={game.home_team} />
+                    <TeamLogo teamId={game.home_id} team={game.home_team} isNational={game.league === 'worldcup'} />
                     <span className="text-lg font-medium text-white">{game.home_team}</span>
                 </div>
 
@@ -266,7 +286,7 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
                 
                 {/* Away team */}
                 <div className="flex-1 flex flex-col items-center gap-1 pl-4">
-                    <TeamLogo teamId={game.away_id} team={game.away_team} />
+                    <TeamLogo teamId={game.away_id} team={game.away_team} isNational={game.league === 'worldcup'} />
                     <span className="text-lg font-medium text-white">{game.away_team}</span>
                 </div>
             </div>

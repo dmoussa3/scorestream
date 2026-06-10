@@ -150,6 +150,12 @@ Use this table for questions like 'who is the top scorer this season'
 or 'how many goals has Haaland scored'. Do NOT use the goals table
 for season total queries — it only contains recent match events from ESPN.
 
+Note on leagues:
+- 'worldcup' refers to the 2026 FIFA World Cup
+- World Cup games follow the same schema as club leagues
+- home_team and away_team are national team abbreviations (e.g. 'ENG', 'BRA', 'ARG')
+- home_team_name and away_team_name are full country names (e.g. 'England', 'Brazil')
+
 Example queries:
 
 -- Who scored in Arsenal's last game?
@@ -386,6 +392,36 @@ WHERE (
 AND gm.status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF')
 ORDER BY gm.start_time DESC
 LIMIT 1;
+
+-- Which World Cup games are today?
+SELECT home_team_name, away_team_name, home_score, away_score, status, start_time
+FROM games
+WHERE league = 'worldcup'
+AND DATE(start_time) = CURRENT_DATE
+ORDER BY start_time ASC;
+
+-- Who has scored at the World Cup?
+SELECT 
+    gl.player_name,
+    COUNT(*) as goals,
+    MAX(CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+    END) as country
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE gm.league = 'worldcup'
+AND gl.own_goal = false
+GROUP BY gl.player_name
+ORDER BY goals DESC
+LIMIT 10;
+
+-- What were the results in the World Cup group stage?
+SELECT home_team_name, away_team_name, home_score, away_score, start_time
+FROM games
+WHERE league = 'worldcup'
+AND status IN ('STATUS_FULL_TIME', 'STATUS_FINAL')
+ORDER BY start_time ASC;
 """
 
 TEAM_ALIASES = """
@@ -430,6 +466,20 @@ Lille → Lille
 Rennes → Stade Rennais
 """
 
+WORLD_CUP_ALIASES = """
+World Cup country name aliases:
+USA, United States → United States
+England → England (not Great Britain)
+Korea → South Korea
+Iran → Iran
+Ivory Coast → Ivory Coast
+Bosnia → Bosnia-Herzegovina
+Czech Republic → Czechia
+Turkey → Türkiye
+Curacao → Curaçao
+Congo → DR Congo
+"""
+
 ALIAS_MAP = {
     "psg":              "Paris Saint-Germain",
     "man united":       "Manchester United",
@@ -461,6 +511,43 @@ ALIAS_MAP = {
     "lille":            "Lille",
     "monaco":           "AS Monaco",
     "alaves":           "Alavés",
+    "usa":              "United States",
+    "united states":    "United States",
+    "america":          "United States",
+    "england":          "England",
+    "three lions":      "England",
+    "brazil":           "Brazil",
+    "seleção":          "Brazil",
+    "argentina":        "Argentina",
+    "france":           "France",
+    "les bleus":        "France",
+    "germany":          "Germany",
+    "die mannschaft":   "Germany",
+    "spain":            "Spain",
+    "la roja":          "Spain",
+    "portugal":         "Portugal",
+    "netherlands":      "Netherlands",
+    "holland":          "Netherlands",
+    "morocco":          "Morocco",
+    "japan":            "Japan",
+    "south korea":      "South Korea",
+    "korea":            "South Korea",
+    "senegal":          "Senegal",
+    "mexico":           "Mexico",
+    "canada":           "Canada",
+    "australia":        "Australia",
+    "socceroos":        "Australia",
+    "nigeria":          "Nigeria",
+    "super eagles":     "Nigeria",
+    "ivory coast":      "Ivory Coast",
+    "côte d'ivoire":    "Ivory Coast",
+    "bosnia":           "Bosnia-Herzegovina",
+    "czech republic":   "Czechia",
+    "curacao":          "Curaçao",
+    "turkiye":          "Türkiye",
+    "turkey":           "Türkiye",
+    "congo":            "DR Congo",
+    "cape verde":       "Cape Verde",
 }
 
 # ── DB helper ────────────────────────────────────────────────────────
@@ -700,7 +787,7 @@ def get_status(last_updated, threshold_minutes):
 
 @app.get("/games")
 @limiter.limit("60/minute")
-def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea)$")):
+def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea|worldcup)$")):
     """
     Return all games, optionally filtered by status and league.
     """
@@ -827,12 +914,20 @@ def get_standings(league: str = 'epl'):
         conn = get_db()
         cursor = get_db_cursor(conn)
 
-        cursor.execute("""
-            SELECT *
-            FROM standings
-            WHERE league = %s
-            ORDER BY rank ASC
-        """, (league, ))
+        if league == 'worldcup':
+            cursor.execute("""
+                SELECT *
+                FROM standings
+                WHERE league = %s
+                ORDER BY group_name ASC, rank ASC
+            """, (league, ))
+        else:
+            cursor.execute("""
+                SELECT *
+                FROM standings
+                WHERE league = %s
+                ORDER BY rank ASC
+            """, (league, ))
 
         rows = [dict(r) for r in cursor.fetchall()]
 
@@ -896,6 +991,126 @@ Rules:
 - Return ONLY valid JSON, no explanation, no markdown, no backticks
 """
 
+WORLD_CUP_CONTEXT = """
+World Cup specific rules:
+
+Data available:
+- Games: all World Cup matches stored with league = 'worldcup'
+- Goals: individual goal events for World Cup matches
+- Standings: group stage standings with group_name field (e.g. 'Group A')
+- Teams are national teams — home_team_name and away_team_name are country names
+
+Stages:
+- Group stage: teams play 3 games each, top 2 per group advance
+- Round of 32: first knockout round (48 teams → 24)
+- Round of 16: second knockout round  
+- Quarter-finals: 8 teams
+- Semi-finals: 4 teams
+- Third place playoff: losers of semi-finals
+- Final: 2 teams
+
+Status values for knockout rounds:
+- STATUS_FULL_TIME — game ended in 90 minutes
+- STATUS_EXTRA_TIME — game went to extra time
+- STATUS_PENALTIES — game decided on penalties
+
+Example queries:
+
+-- Which teams have qualified from their group?
+SELECT team_name, group_name, points, wins, draws, losses, goals_for, goals_against, goal_diff, rank, note
+FROM standings
+WHERE league = 'worldcup'
+AND note ILIKE '%advance%'
+ORDER BY group_name ASC, rank ASC;
+
+-- Show me Group A standings
+SELECT team_name, matches_played, wins, draws, losses, goals_for, goals_against, goal_diff, points, rank
+FROM standings
+WHERE league = 'worldcup'
+AND group_name = 'Group A'
+ORDER BY rank ASC;
+
+-- Who has scored the most goals at the World Cup?
+SELECT 
+    gl.player_name,
+    COUNT(*) as goals,
+    MAX(CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+    END) as country
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE gm.league = 'worldcup'
+AND gl.own_goal = false
+GROUP BY gl.player_name
+ORDER BY goals DESC
+LIMIT 10;
+
+-- Which countries have scored the most goals?
+SELECT 
+    CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+    END AS country,
+    COUNT(*) as goals
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE gm.league = 'worldcup'
+AND gl.own_goal = false
+GROUP BY country
+ORDER BY goals DESC;
+
+-- What were the results in the group stage?
+SELECT home_team_name, away_team_name, home_score, away_score, start_time, status_detail
+FROM games
+WHERE league = 'worldcup'
+AND status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_EXTRA_TIME', 'STATUS_PENALTIES')
+ORDER BY start_time ASC;
+
+-- Which games went to penalties?
+SELECT home_team_name, away_team_name, home_score, away_score, start_time, status_detail
+FROM games
+WHERE league = 'worldcup'
+AND status = 'STATUS_PENALTIES'
+ORDER BY start_time ASC;
+
+-- Show me all World Cup games for a specific country
+SELECT home_team_name, away_team_name, home_score, away_score, start_time, status_detail
+FROM games
+WHERE league = 'worldcup'
+AND (home_team_name ILIKE '%England%' OR away_team_name ILIKE '%England%')
+ORDER BY start_time ASC;
+
+-- Who scored in a specific World Cup match?
+SELECT 
+    gl.player_name,
+    gl.minute,
+    gl.goal_type,
+    gl.own_goal,
+    gl.penalty_goal,
+    CASE 
+        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
+        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
+    END AS scored_for,
+    gm.home_team_name,
+    gm.away_team_name,
+    gm.home_score,
+    gm.away_score
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE gm.league = 'worldcup'
+AND (gm.home_team_name ILIKE '%Brazil%' OR gm.away_team_name ILIKE '%Brazil%')
+AND gm.game_id = (
+    SELECT game_id FROM games
+    WHERE league = 'worldcup'
+    AND (home_team_name ILIKE '%Brazil%' OR away_team_name ILIKE '%Brazil%')
+    AND status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME')
+    ORDER BY start_time DESC
+    LIMIT 1
+)
+ORDER BY gl.seconds ASC;
+"""
+
 def expand_aliases(question: str) -> str:
     q = question.lower()
     for alias, full in ALIAS_MAP.items():
@@ -928,6 +1143,10 @@ def chat(request: Request, body: dict):
             {DB_SCHEMA}
 
             {TEAM_ALIASES}
+
+            {WORLD_CUP_CONTEXT}
+
+            {WORLD_CUP_ALIASES}
 
             Rules:
             - For completed or finished games use: 
@@ -974,7 +1193,17 @@ def chat(request: Request, body: dict):
             - When asked questions like for any upcoming games soon, look for games with the status='STATUS_SCHEDULED' and start_time in the future, ordered by start_time ASC
             - When asked about games that are or were live today, or live right now, look for games with start_time = CURRENT_DATE
             - Limit results to 20 rows maximum
-            - For league names use: epl, laliga, bundesliga, seriea, ligue1
+            - For league names use: epl, laliga, bundesliga, seriea, ligue1, worldcup
+            - For World Cup questions always filter with league = 'worldcup'
+            - National teams use country names — search with ILIKE '%England%' not '%ENG%'
+            - World Cup standings have a group_name field — always include it when querying standings
+            - For knockout round results check status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_EXTRA_TIME', 'STATUS_PENALTIES')
+            - Penalty shootout scores are NOT stored — only the score after extra time is recorded
+            - For 'who qualified' questions use the note field in standings — filter WHERE note ILIKE '%advance%'
+            - For group standings always ORDER BY rank ASC within each group_name
+            - The 2026 World Cup has 48 teams split into 12 groups (A through L)
+            - Top 2 from each group advance plus 8 best third-place teams advance to Round of 32
+            - Never confuse club team names with national team names
             - Never use DROP, DELETE, UPDATE, INSERT or any write operations
             - When asking about a team's scorers always JOIN goals with games on game_id
             - Every query involving goals MUST include a 'scored_for' column computed as:
@@ -1060,6 +1289,11 @@ def chat(request: Request, body: dict):
             if asking about goal difference, include goal_diff and team_name, not points
             - For 'what happened' questions give a full match summary:
             first the score, then list each scorer, then a brief one-line summary
+            - For World Cup results format as: Country A 2 - 1 Country B (AET) for extra time
+            - For penalty shootouts note: 'decided on penalties' since penalty scores aren't stored
+            - For group standings show the group name as a header
+            - For qualification questions list which teams advanced and from which group
+            - Use country names not abbreviations in responses
             - Never mention SQL or databases
             - If data is empty say so clearly
             """,

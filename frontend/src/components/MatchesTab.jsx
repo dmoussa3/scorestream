@@ -112,6 +112,42 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
     const homeGoals = goalsArray.filter(g => g.team_id === game.home_id);
     const awayGoals = goalsArray.filter(g => g.team_id === game.away_id);
 
+    function TeamLogo({ teamId, team, size=16, isNational = false }) {
+        const [imgSrc, setImgSrc] = useState(
+            `https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`
+        )
+
+        const attemptedFallback = useRef(false)
+
+        const handleError = () => {
+            if (attemptedFallback.current || !isNational) {
+                setImgSrc(null)
+                return
+            }
+            attemptedFallback.current = true
+            setImgSrc(
+                `https://a.espncdn.com/i/teamlogos/countries/500/${team?.toLowerCase().replace(/ /g, '-')}.png`
+            )
+        }
+
+        if (!imgSrc) return (
+            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center flex-shrink-0" />
+        )
+        
+        return (
+            <div className="w-18 h-18 rounded-full flex items-center justify-center flex-shrink-0">
+                 <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                    <img
+                        src={imgSrc}
+                        alt={team}
+                        className={`w-${size} h-${size} object-contain`}
+                        onError={handleError}
+                    />
+                 </div>
+            </div>
+        )
+    }
+
     return (
         <div className="max-w-4xl mx-auto space-y-6">
 
@@ -157,14 +193,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                             <div className="text-2xl font-bold text-white text-center">
                                 {game.home_team_name || game.home_team}
                             </div>
-                            <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center flex-shrink-0">
-                                <img
-                                    src={`https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`}
-                                    alt={game.home_team_name || game.home_team}
-                                    className="w-16 h-16 object-contain"
-                                    onError={(e) => {e.target.style.display = 'none'}}
-                                />
-                            </div>
+                            <TeamLogo teamId={game.home_id} team={game.home_team} isNational={game.league === 'worldcup'} />
                         </div>
                     </div>
 
@@ -178,14 +207,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                     {/* Away team */}
                     <div className="flex flex-col items-start">
                         <div className="flex items-center gap-3">
-                            <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center flex-shrink-0">
-                                <img
-                                    src={`https://a.espncdn.com/i/teamlogos/soccer/500/${game.away_id}.png`}
-                                    alt={game.away_team_name || game.away_team}
-                                    className="w-16 h-16 object-contain"
-                                    onError={(e) => {e.target.style.display = 'none'}}
-                                />
-                            </div>
+                            <TeamLogo teamId={game.away_id} team={game.away_team} isNational={game.league === 'worldcup'} />
                             <div className="text-2xl font-bold text-white text-center">
                                 {game.away_team_name || game.away_team}
                             </div>

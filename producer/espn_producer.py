@@ -30,6 +30,7 @@ LEAGUES = {
     "seriea": "ita.1",
     "bundesliga": "ger.1",
     "ligue1": "fra.1",
+    "worldcup": "fifa.world"
 }
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:password@postgres:5432/scorestream")
@@ -93,7 +94,9 @@ def fetch_standings(league: str) -> list[dict]:
         entries = []
 
         for group in resp.json().get("children", []):
+            name = group.get("name", "")
             for entry in group.get("standings", {}).get("entries", []):
+                entry["_group_name"] = name  # Add group name to each entry for context
                 entries.append(entry)
 
         return entries
@@ -111,7 +114,9 @@ def parse_game(game: dict, league: str) -> dict | None:
         home = next(t for t in competitors if t["homeAway"] == "home")
         away = next(t for t in competitors if t["homeAway"] == "away")
         status =  competition["status"]
-        
+        home_logos = home.get("team", {}).get("logos", [])
+        away_logos = away.get("team", {}).get("logos", [])
+
         goals = []
         for detail in competition.get("details", []):
             if not detail.get("scoringPlay", False):
@@ -161,6 +166,8 @@ def parse_game(game: dict, league: str) -> dict | None:
             "away_score": int(away.get("score", 0) or 0),
             "period":    status.get("period", 0),
             "clock":     status.get("displayClock", ""),
+            "home_logo": home_logos[0]["href"] if home_logos else None,
+            "away_logo": away_logos[0]["href"] if away_logos else None,
             "goals":     goals,
             "cards":     cards,
             "start_time": game.get("date"),
@@ -176,10 +183,15 @@ def parse_standing(entry: dict, league: str) -> dict | None:
     try:
         stats = {s["name"]: s["value"] for s in entry.get("stats", []) if "value" in s}
         team  = entry["team"]
+        note  = entry.get("note", {})
+        logos = team.get("logos", [])
+        logo_url = logos[0]["href"] if logos else None
+
         return {
             "team_id": team["id"],
             "league": league,
             "team_name": team["displayName"],
+            "group_name": entry.get("_group_name", None),
             "wins": int(stats.get("wins", 0)),
             "draws": int(stats.get("ties", 0)),
             "losses": int(stats.get("losses", 0)),
@@ -190,6 +202,9 @@ def parse_standing(entry: dict, league: str) -> dict | None:
             "matches_played": int(stats.get("gamesPlayed", 0)),
             "rank": int(stats.get("rank", 0)),
             "deductions": int(stats.get("deductions", 0)),
+            "note": note.get("description", None),
+            "note_color": note.get("color", None),
+            "logo_url": logo_url,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except (KeyError, TypeError) as e:
