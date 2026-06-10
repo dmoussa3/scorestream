@@ -1,70 +1,63 @@
 # ScoreStream
 
-A real-time european football data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose.
+A real-time football data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose.
 
-ScoreStream ingests live match data from **the 5 major European leagues** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel Airflow batch layer handles scheduled standings refreshes and daily Parquet archiving across all leagues.
-
----
-
-## Supported Leagues
-
-| League | ESPN Code | Teams |
-|---|---|---|
-| Premier League | eng.1 | 20 |
-| La Liga | esp.1 | 20 |
-| Bundesliga | ger.1 | 18 |
-| Serie A | ita.1 | 20 |
-| Ligue 1 | fra.1 | 18 |
-
-Additional leagues can be added by appending to the `LEAGUES` dict in `espn_producer.py` — no other changes required.
+ScoreStream ingests live match data from **5 major European leagues and the FIFA World Cup** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel Airflow batch layer handles scheduled standings refreshes, season stats aggregation, and daily Parquet archiving. A natural language chat interface powered by Claude allows users to query live pipeline data in plain English.
 
 ---
 
 ## Architecture
 
 ```
-ESPN Public API (polled every 30s — 5 leagues)
+ESPN Public API (polled every 15s — 6 competitions)
         │
         ▼
 Python Producer
         │  publishes to Kafka topics
         ▼
 ┌─────────────────────────────────────┐
-│  sports.live.scores                 │  game state + goal events (all leagues)
-│  sports.standings                   │  full league table snapshots
+│  sports.live.scores (3 partitions)  │  game state + goal events
+│  sports.standings   (1 partition)   │  full league/group table snapshots
 └─────────────────────────────────────┘
         │
         ▼
 PySpark Structured Streaming
-  ├── process_games     →  games table       (upsert, every 10s)
-  └── process_goals     →  goals table       (deduplication via composite key)
+  ├── process_games     →  games table       (upsert, every 5s)
+  └── process_goals     →  goals table       (dedup via unique constraint)
         │
         ▼
 PostgreSQL ←→ Redis (dynamic TTL)
         │          │
-        │          └──▶ WebSocket push → React frontend
+        │          └──▶ Redis pub/sub → WebSocket push → React frontend
         ▼
-FastAPI REST API + WebSocket
+FastAPI REST API + WebSocket (/ws)
 
 Airflow (parallel batch layer)
-  ├── standings_refresh  →  runs every 30 min, all 5 leagues
-  └── epl_daily_archive  →  runs at midnight, writes Parquet snapshots
+  ├── standings_refresh    →  every 30 min, all 6 competitions
+  ├── season_stats_refresh →  every 15 min, aggregates goals into season_stats
+  └── epl_daily_archive    →  nightly Parquet snapshots to ./archive/
+
+Claude AI Chat (/chat)
+  ├── SQL generation       →  natural language → PostgreSQL query
+  ├── Query execution      →  safe read-only execution
+  ├── Chart detection      →  decides bar/line/pie or text response
+  └── Answer formatting    →  raw rows → natural language + optional chart
 ```
 
 ---
 
-## Tech Stack
+## Supported Competitions
 
-| Layer | Technology |
-|---|---|
-| Ingestion | Python, ESPN Public API |
-| Message broker | Apache Kafka 7.4 |
-| Stream processing | PySpark 3.4 Structured Streaming |
-| Orchestration | Apache Airflow 2.8 |
-| Storage | PostgreSQL 15, Parquet |
-| Caching | Redis 7 |
-| API | FastAPI, Uvicorn |
-| Infrastructure | Docker, Docker Compose |
+| Competition | ESPN Code | Teams | Type |
+|---|---|---|---|
+| Premier League | eng.1 | 20 | Club |
+| La Liga | esp.1 | 20 | Club |
+| Bundesliga | ger.1 | 18 | Club |
+| Serie A | ita.1 | 20 | Club |
+| Ligue 1 | fra.1 | 20 | Club |
+| FIFA World Cup | fifa.world | 48 | National |
+
+Additional competitions can be added by appending to the `LEAGUES` dict in `espn_producer.py`.
 
 ---
 
@@ -72,203 +65,135 @@ Airflow (parallel batch layer)
 
 | Service | Port | Description |
 |---|---|---|
-| FastAPI | 8000 | REST API serving live stats |
-| Frontend | 3000 | React Dashboard UI |
+| FastAPI | 8000 | REST API + WebSocket + AI chat endpoint |
+| Frontend | 3000 | React dashboard UI |
 | Airflow | 8081 | Pipeline orchestration UI |
 | Kafka UI | 8090 | Topic and message inspection |
 | PostgreSQL | 5432 | Primary database |
-| Redis | 6379 | API response cache |
-| Chat API | 8000/chat | Natural language query endpoint |
+| Redis | 6379 | API response cache + pub/sub broker |
+
+---
+
+## Database Schema
+
+**games** — live and historical match data
+```
+game_id, league, home_team, away_team, home_team_name, away_team_name,
+home_id, away_id, home_logo, away_logo, home_score, away_score,
+status, status_detail, period, clock, start_time, last_updated
+```
+
+**goals** — individual goal events
+```
+id, game_id, league, player_id, player_name, team_id,
+minute, seconds, goal_type, own_goal, penalty_goal, created_at
+UNIQUE (game_id, player_id, seconds)
+```
+
+**standings** — league and group tables
+```
+team_id, league, team_name, group_name, wins, draws, losses,
+points, goals_for, goals_against, goal_diff, matches_played,
+rank, note, note_color, logo_url, last_updated
+PRIMARY KEY (team_id, league)
+```
+
+**season_stats** — aggregated per-player season totals
+```
+player_id, player_name, team_id, team_name, league, season,
+goals, assists, penalties, last_updated
+PRIMARY KEY (player_id, league, season)
+```
+
+**pipeline_metadata** — producer health tracking
+```
+key, value, last_updated
+```
 
 ---
 
 ## API Endpoints
 
 ```
-GET /                           — Service info
-GET /health                     — DB and cache connectivity check
-GET /health/pipeline            — Full pipeline component status
-GET /games                      — All games, filterable by ?status= and ?league=
-GET /games/{game_id}            — Single game by ID
-GET /games/{game_id}/stats      — Goal events for a specific game
-GET /standings                  — League table, filterable by ?league=
-GET /leagues                    — List of all leagues with data
-WS  /ws                         — WebSocket for real-time push updates
+GET  /                          — Service info
+GET  /health                    — DB and cache connectivity
+GET  /health/pipeline           — Full pipeline component status (rate limited 10/min)
+GET  /games                     — All games, filterable by ?status= and ?league=
+GET  /games/{game_id}           — Single game by ID
+GET  /games/{game_id}/stats     — Goal events for a specific game
+GET  /standings                 — League/group table by ?league=
+GET  /leagues                   — List of all competitions with data
+POST /chat                      — Natural language query endpoint
+WS   /ws                        — WebSocket real-time push
 ```
 
 ---
 
 ## Dashboard
 
-A React single-page application with four views and a league selector:
+A React single-page application with five views and a competition selector:
 
-**League Selector** — Switch between Premier League, La Liga, Bundesliga, Serie A, and Ligue 1. Scores and standings update automatically when switching leagues.
+**Competition Selector** — Switch between Premier League, La Liga, Bundesliga, Serie A, Ligue 1, and the FIFA World Cup. The entire app theme updates to match the selected competition's color scheme.
 
-**Live Scores** — Match cards showing live scores, status, team logos, and kickoff times. Updates in real time via WebSocket push — no polling. Click any card to view match details.
+**Live Scores** — Match cards showing live scores, status badges, team logos, and kickoff times. Updates in real time via WebSocket push. Click any card to view match details.
 
-**League Table** — Full standings with position, points, goal difference, and zone indicators. Champions League positions marked in green, Europa League in purple, relegation in red.
+**League Table / Group Standings** — For club leagues: a full standings table with points, goal difference, and color-coded European qualification and relegation zones. For the World Cup: a grid of group tables showing qualification notes and team logos sourced directly from ESPN.
 
-**Match Detail** — Per-game view with score header, team logos, goal scorers, and a visual goal timeline. For live games the timeline acts as a progress bar with a real-time interpolated clock between API updates.
+**Match Detail** — Per-game view with score header, team logos, goal scorers, and a visual goal timeline. For live games the timeline acts as a real-time progress bar with an interpolated clock between API updates. VAR-cancelled goals are automatically removed.
 
-**Pipeline Health** — Internal dashboard showing status of every pipeline component — producer last poll, Kafka topic message counts, PostgreSQL row counts per table, and Airflow DAG last run status.
+**Ask ScoreStream** — Natural language chat interface powered by Claude. Answers questions about scores, standings, goal scorers, form, and season stats. Generates Recharts visualisations inline for data that suits a chart. Supports follow-up questions via conversation history.
 
-Open the dashboard at `http://localhost:3000` after starting the stack.
+**Pipeline Health** — Internal dashboard showing status of every pipeline component.
+
+---
 
 ## Ask ScoreStream (AI Chat)
-
-A natural language interface powered by Claude that answers questions about live match data using ScoreStream's own PostgreSQL database.
-
-Users can ask questions in plain English and receive accurate, formatted answers drawn directly from the pipeline's data — no third-party sports API involved.
-
-**Example questions:**
-- "Who scored in Arsenal's last game?"
-- "Who is leading the Premier League?"
-- "Which games are live right now?"
-- "How many goals were scored in Ligue 1 today?"
-- "What's PSG's goal difference?"
-
-**How it works:**
 
 ```
 User question
     ↓
-Alias expansion (PSG → Paris Saint-Germain, etc.)
+Alias expansion (PSG → Paris Saint-Germain, Holland → Netherlands, etc.)
     ↓
-Claude (SQL generation) — converts question to PostgreSQL query
+Claude — SQL generation (schema + examples + team aliases + World Cup context)
     ↓
-ScoreStream PostgreSQL — executes query against live pipeline data
+PostgreSQL — safe read-only query execution
     ↓
-Claude (answer formatting) — converts raw rows to natural language
+Claude — chart decision (bar / line / pie / text)
     ↓
-Formatted response with emojis, line breaks, and scorer attribution
+Claude — answer formatting (natural language + scorer attribution)
+    ↓
+React — text response + optional inline Recharts visualisation
 ```
 
-The chat feature uses a two-step Claude pipeline:
-
-1. **SQL generation** — Claude receives the question, the full database schema, example queries, and team alias mappings, then generates a safe read-only PostgreSQL query
-2. **Answer formatting** — Claude receives the raw query results and formats them into a readable response with proper scorer attribution (⚽ Goal / 🎯 Penalty / 🔴 Own Goal)
-
-Conversation history is passed with each request so follow-up questions like "what about their away form?" or "and in La Liga?" work correctly.
+**Example questions:**
+- "Who is the top scorer in the Premier League?"
+- "Show me the Bundesliga standings as a chart"
+- "Who scored in Arsenal's last game?"
+- "Which teams have qualified from Group A?"
+- "Who has scored the most goals at the World Cup?"
+- "Show me PSG's form over their last 5 games"
+- "What proportion of goals were penalties in Ligue 1?"
+- "Which games went to extra time at the World Cup?"
 
 **Safety measures:**
-- All generated SQL is checked for forbidden write operations before execution
-- Queries are limited to 20 rows maximum
-- Only `SELECT` statements are permitted — `DROP`, `DELETE`, `UPDATE`, `INSERT` are blocked
-- Input is validated and sanitized before being sent to Claude
-
-## Data Model
-
-**games** — Live match state, upserted on every poll cycle. Tracks score, period, clock, and match status.
-
-**goals** — Individual goal events extracted from the ESPN details array. Deduplicated using a composite unique constraint on `(game_id, player_id, minute)` to prevent duplicate inserts across repeated poll cycles.
-
-**standings** — Full EPL table. Replaced atomically on each Airflow run and Spark batch using delete-then-insert within a single transaction.
-
-**archive/games/YYYY-MM-DD.parquet** — Daily Parquet snapshots of the games table, written by the Airflow archive DAG.
+- Generated SQL checked for forbidden write operations before execution
+- Only SELECT statements permitted
+- Queries limited to 20 rows maximum
+- Truncated SQL detected via `stop_reason` and rejected cleanly
 
 ---
 
-## Setup
+## Historical Data
 
-### Prerequisites
-
-- Docker Desktop running
-
-### Start the full stack
+Recent matches (last ~3 weeks) are ingested live via the ESPN producer. Full season historical data is backfilled using the football-data.org API via `backfill_historical.py`:
 
 ```bash
-git clone https://github.com/dmoussa3/scorestream
-cd scorestream
-docker compose up --build
+# Backfill all 5 leagues for the 2025/26 season
+python backfill_historical.py
 ```
 
-First run takes 3–5 minutes — Spark downloads its Kafka and PostgreSQL JARs via Maven on startup. Subsequent starts are fast since the Ivy cache is persisted via a Docker volume.
+The script maps football-data.org team IDs to ESPN team IDs so logos render correctly for historical games. World Cup data is ingested live via the ESPN producer — no backfill needed.
 
-## Environment
-
-This project uses hardcoded development credentials in `docker-compose.yml`. 
-These are intentional for local development. Do not use these credentials 
-in any production deployment.
-
-Default credentials:
-- PostgreSQL: `admin` / `password`
-- Airflow UI: check logs on first startup for auto-generated password
-- Kafka UI: no authentication required
-
-Required environment variables/credentials:
-- `ANTHROPIC_API_KEY` — required for the AI chat feature. Get one at https://console.anthropic.com
-- `DATABASE_URL` — PostgreSQL connection string
-- `ALLOWED_ORIGINS` — CORS allowed origins (default: http://localhost:3000)
-
-Add these to a `.env` file in the project root — this file is gitignored and should never be committed.
-
-### Verify everything is running
-
-```bash
-# Check all containers are healthy
-docker compose ps
-
-# Confirm data is flowing
-curl http://localhost:8000/health
-curl http://localhost:8000/games
-curl http://localhost:8000/standings
-```
-
-# Open the dashboard
-open http://localhost:3000
-```
-
-The dashboard connects to the API automatically. The Pipeline Health tab is the fastest way to verify all components are healthy after startup.
-
-### Airflow UI
-
-Open `http://localhost:8081`. Find the generated admin password:
-
-```bash
-docker compose logs airflow-webserver | grep -i "password"
-```
-
-Two DAGs will be present — toggle both on. Manually trigger `epl_daily_archive` to generate the first Parquet snapshot.
-
-### Stop
-
-```bash
-docker compose down          # stop, keep data
-docker compose down -v       # stop and wipe all data
-```
----
-
-## Engineering Challenges
-
-Building this project involved working through several non-trivial distributed systems problems:
-
-**Kafka topic timing** — Spark Structured Streaming fails with `UnknownTopicOrPartitionException` if topics don't exist when queries start. Solved by adding a `kafka-init` container that pre-creates topics and completes before Spark starts, using Docker Compose's `service_completed_successfully` condition.
-
-**PySpark on Apple Silicon** — PySpark 3.4 requires Java 11 specifically. The default `openjdk-11-jdk` package is unavailable on ARM64 Debian Trixie. Solved by switching the base image to `eclipse-temurin:11-jdk-jammy`, which provides ARM64-compatible Java 11.
-
-**JAR version conflicts** — Manually downloading `spark-sql-kafka` and `kafka-clients` separately caused `ClassNotFoundException` due to version mismatches between the connector and client. Solved by switching to `spark.jars.packages`, which lets Spark resolve all transitive dependencies from Maven with guaranteed version compatibility.
-
-**Kafka offset drift** — After container restarts, Spark checkpoints retained stale offsets that no longer existed in Kafka due to retention expiry. This caused repeated `UnknownTopicOrPartitionException` on the standings stream. Solved by increasing Kafka log retention to 24 hours and adding `failOnDataLoss=false` to the stream config.
-
-**Goals always null despite correct schema** — The `goals` field parsed as null in every batch despite the Kafka messages containing goal data. Root cause: `minute` was defined as `IntegerType` in the PySpark schema but the producer publishes it as a string (e.g. `"8'"`, `"90'+3'"`). When `from_json` encountered a type mismatch on any field in a nested struct, it nulled the entire array. Fixed by changing `minute` to `StringType`.
-
-**Standings schema mismatch** — The producer publishes the full 20-team standings as a single Kafka message containing a JSON array. The initial PySpark schema defined standings as a single struct, causing `from_json` to return null for every message. Fixed by wrapping the schema in `ArrayType` and using `explode()` to flatten the array into individual rows before writing.
-
-**Checkpoint filesystem deadlock** — On macOS, concurrent Spark stream startups occasionally cause `Resource deadlock avoided` errors when multiple queries try to write checkpoint temp files simultaneously. This is a macOS-specific filesystem locking behavior and self-recovers on retry. Mitigated by staggering stream startups with a small delay between each query.
-
-**React polling and clock interpolation** — The match detail view polls the API every 15 seconds for live game data, but ESPN's public API only updates its clock roughly every 60 seconds. To make the progress bar and clock feel real-time, the frontend interpolates between server updates using a `setInterval` ticker that increments elapsed seconds every second, resetting to the true server value on each API response. Two separate state variables keep the display clock and bar position independent — the clock ticks smoothly while the bar only moves on confirmed server data.
-
-**Goal timeline positioning** — Goals are positioned on the timeline using `clock.value` from the ESPN details array, which represents elapsed match time in seconds. This avoids parsing display strings like `"90'+3'"` and handles stoppage time naturally since the raw seconds value is monotonically increasing regardless of display format.
-
-**Logo contrast on dark backgrounds** — ESPN team logos for light-colored clubs (Tottenham, etc.) are invisible on dark card backgrounds. Fixed by wrapping every logo in a white circular container so all logos have guaranteed contrast regardless of their color scheme.
-
-**Multi-league pipeline scaling** — Extending from a single EPL feed to five concurrent leagues required generalizing every layer — the producer loops over a `LEAGUES` dict, Kafka topics were renamed from `epl.*` to `sports.*`, the database schema added a `league` column with a composite primary key on `(team_id, league)` for standings, and the API added `?league=` filter parameters throughout. The architecture required no structural changes — only parameterization.
-
-**WebSocket real-time push** — Replaced frontend polling with a Redis pub/sub → WebSocket push architecture. Spark publishes a lightweight notification to Redis after each batch commit. FastAPI's async Redis subscriber receives the notification and broadcasts to all connected WebSocket clients via the `ConnectionManager`. The frontend triggers a targeted refetch on receiving the push rather than on a fixed interval, reducing API load during quiet periods while ensuring near-instant updates during live matches.
-
-**datetime JSON serialization** — PostgreSQL returns Python `datetime` objects which are not JSON serializable by default. Added a serialization loop across all endpoints that converts any field with an `isoformat` method before caching or returning. The bug surfaced only for newly cached endpoints since existing cached responses returned the pre-serialized string values.
-
-**Text-to-SQL natural language interface** — Built a two-step Claude pipeline that converts natural language football questions into PostgreSQL queries against ScoreStream's own data. The first Claude call generates safe read-only SQL using schema context, example queries, and team alias mappings (PSG → Paris Saint-Germain, Spurs → Tottenham Hotspur, etc.). The second Claude call formats the raw database rows into readable natural language with proper goal attribution using a `CASE WHEN team_id = home_id` pattern to correctly identify which team each scorer played for. Conversation history is passed with each request enabling contextual follow-up questions.
 ---
 
 ## Project Structure
@@ -276,43 +201,46 @@ Building this project involved working through several non-trivial distributed s
 ```
 scorestream/
 ├── docker-compose.yml
-├── restart.sh                     # safe restart script — clears checkpoints
+├── restart.sh                      # safe restart — clears Spark checkpoints
+├── backfill_historical.py          # one-time historical data import
 ├── sql/
 │   └── init.sql
 ├── producer/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── espn_producer.py           # ESPN API → Kafka (5 leagues)
+│   └── espn_producer.py            # ESPN API → Kafka (6 competitions)
 ├── spark/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── streaming_job.py           # PySpark Structured Streaming consumer
+│   └── streaming_job.py            # PySpark Structured Streaming consumer
 ├── dags/
-│   ├── standings_refresh.py       # Airflow DAG — 30 min standings refresh (all leagues)
-│   └── epl_daily_archive.py       # Airflow DAG — nightly Parquet archive
+│   ├── standings_refresh.py        # 30 min — all leagues + World Cup groups
+│   ├── season_stats_refresh.py     # 15 min — aggregates goals into season_stats
+│   └── epl_daily_archive.py        # nightly Parquet archive
 ├── api/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── main.py                    # FastAPI + WebSocket + /chat AI endpoint
+│   └── main.py                     # FastAPI + WebSocket + /chat AI endpoint
 ├── frontend/
 │   ├── Dockerfile
 │   ├── package.json
 │   ├── public/
 │   │   └── index.html
 │   └── src/
-│       ├── App.jsx                # League selector, WebSocket indicator
+│       ├── App.jsx                 # Competition selector, themes, WebSocket
 │       ├── index.js
 │       ├── hooks/
-│       │   ├── usePoll.js         # Polling hook (MatchesTab, PipelineTab)
-│       │   ├── useWebSocket.js    # WebSocket connection with auto-reconnect
+│       │   ├── usePoll.js
+│       │   ├── useWebSocket.js
 │       │   ├── useNotifications.js
 │       │   ├── useSubscriptions.js
 │       │   └── useGameWatcher.js
 │       └── components/
-│           ├── ScoresTab.jsx      # WebSocket-triggered refetch + league filter
-│           ├── StandingsTab.jsx   # WebSocket-triggered refetch + league filter
-│           ├── MatchesTab.jsx     # usePoll at 15s
-│           └── PipelineTab.jsx    # usePoll at 60s
+│           ├── ScoresTab.jsx
+│           ├── StandingsTab.jsx    # Club tables + World Cup group grid
+│           ├── MatchesTab.jsx
+│           ├── PipelineTab.jsx
+│           └── ChatTab.jsx         # AI chat + inline Recharts charts
 ├── checkpoints/
 ├── archive/
 └── README.md
@@ -320,19 +248,79 @@ scorestream/
 
 ---
 
-## What's Next (Phase 5)
+## Setup
 
-- Replace local Kafka with AWS MSK or Kinesis Data Streams
-- Replace local Parquet storage with S3
-- Replace local Spark with AWS Glue managed jobs
-- Deploy FastAPI on EC2 behind an Application Load Balancer
-- Deploy frontend on S3 + CloudFront for global CDN delivery
-- Add CloudWatch monitoring and alerting
-- Add Champions League and Europa League support
-- Add historical analytics tab using archived Parquet data
+### Prerequisites
+- Docker and Docker Compose
+- Anthropic API key (for chat feature)
+
+### Environment
+
+Create a `.env` file in the project root:
+
+```bash
+ANTHROPIC_API_KEY=your_key_here
+DATABASE_URL=postgresql://admin:password@postgres:5432/scorestream
+ALLOWED_ORIGINS=http://localhost:3000
+FOOTBALL_DATA_API_KEY=your_key_here  # optional, for historical backfill only
+```
+
+**Note:** Default PostgreSQL credentials in `docker-compose.yml` are intentional for local development. Never use these in production.
+
+### Start
+
+```bash
+docker compose up --build
+```
+
+Open the dashboard at `http://localhost:3000`.
+
+The Pipeline Health tab is the fastest way to verify all components are healthy after startup.
+
+### Restart safely
+
+```bash
+./restart.sh
+```
+
+Clears Spark checkpoints and restarts all services cleanly.
+
+### Backfill historical data (optional)
+
+```bash
+python backfill_historical.py
+```
+
+Populates the full season's games for all 5 club leagues using football-data.org. Requires `FOOTBALL_DATA_API_KEY` in `.env`.
 
 ---
 
-## Author
+## Engineering Challenges
 
-Daniel Moussa — [dmoussa3.github.io](https://dmoussa3.github.io) — [LinkedIn](https://linkedin.com/in/daniel-moussa3) — [GitHub](https://github.com/dmoussa3)
+**Real-time clock interpolation** — ESPN's public API updates its clock roughly every 60 seconds. The match detail view interpolates between server updates using a `setInterval` ticker, resetting to the confirmed server value on each poll. Two separate state variables keep the display clock (ticking every second) and bar position (updating on confirmed data only) independent.
+
+**Goal deduplication** — ESPN sometimes refines goal types after the initial event is published (e.g. `"Goal"` → `"Goal - Header"`). A `UNIQUE (game_id, player_id, seconds)` constraint combined with `ON CONFLICT DO UPDATE SET goal_type` handles this cleanly — the row is updated in place rather than duplicated. VAR cancellations are handled by a delete-before-upsert pattern in Spark that removes any goals no longer present in ESPN's details array.
+
+**Multi-competition pipeline** — Extending from a single EPL feed to six competitions (five club leagues plus the World Cup) required generalising every layer. The producer loops over a `LEAGUES` dict, Kafka topics were renamed from `epl.*` to `sports.*`, and the database schema added a `league` column throughout. The standings table gained `group_name`, `note`, `note_color`, and `logo_url` columns to support World Cup group stage data. No structural changes to Kafka or Spark were required.
+
+**WebSocket real-time push** — Replaced frontend polling with a Redis pub/sub → WebSocket push architecture. Spark publishes a lightweight notification to Redis after each batch commit. FastAPI's async Redis subscriber broadcasts to all connected WebSocket clients. The frontend triggers targeted refetches on receiving the push, reducing API load during quiet periods while ensuring near-instant updates during live matches.
+
+**Text-to-SQL natural language chat** — A two-step Claude pipeline converts natural language questions into PostgreSQL queries. The first call generates safe read-only SQL using schema context, example queries, team alias mappings, and World Cup-specific context. The second call formats raw database rows into readable natural language with correct goal attribution using `CASE WHEN team_id = home_id`. A third step decides whether results are better shown as a Recharts bar, line, or pie chart. Conversation history is passed with each request enabling contextual follow-up questions.
+
+**Historical data backfill** — ESPN's public API only retains scoreboard data for ~3 weeks. Full season historical data is backfilled via football-data.org's API with a one-time script that maps football-data.org team IDs to ESPN team IDs so logos render correctly for historical games.
+
+**Logo resolution across data sources** — ESPN team IDs and football-data.org team IDs are completely different numbering systems. A manually curated mapping of 96 teams across all five leagues ensures logos load correctly regardless of which source the game data came from. World Cup national team logos use ESPN's country CDN path with a two-attempt fallback pattern to avoid infinite re-render loops.
+
+---
+
+## What's Next (Phase 5)
+
+- Replace local Kafka with AWS MSK
+- Replace local Spark with AWS Glue managed jobs
+- Replace local Parquet storage with S3
+- Deploy FastAPI on EC2 behind an Application Load Balancer
+- Deploy frontend on S3 + CloudFront
+- Add CloudWatch monitoring and alerting
+- Stream chat responses via WebSocket for faster perceived response time
+- Add historical analytics tab using archived Parquet data via DuckDB
+- Expand chat to support chart generation for World Cup bracket visualisation
