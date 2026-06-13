@@ -234,9 +234,9 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
         return () => clearInterval(interval)
     }, [fetchStandings])
 
-    if (loading) return <div className="text-[#37003c] p-4">Loading standings...</div>
-    if (error)   return <div className="text-[#37003c] p-4">Error: {error}</div>
-    if (!standings?.length) return <div className="text-[#37003c] p-4">No standings data available.</div>
+    if (loading) return <div className="p-4" style={{ color: theme?.accent }}>Loading standings...</div>
+    if (error)   return <div className="p-4 text-red-400">Error: {error}</div>
+    if (!standings?.length) return <div className="p-4" style={{ color: theme?.accent }}>No standings data available.</div>
 
     const isWorldCup = league === 'worldcup'
     
@@ -287,8 +287,8 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
                     </div>
 
                     {/* Legend — unchanged from your current file */}
-                    <div className="flex-shrink-0 flex flex-col gap-3 pt-2 text-xs text-[#37003c] ml-4">
-                        <span className="font-semibold uppercase tracking-wider text-[#37003c] mb-1">
+                    <div className="flex-shrink-0 flex flex-col gap-3 pt-2 text-xs text-white ml-4">
+                        <span className="font-semibold uppercase tracking-wider text-white mb-1">
                             Zones
                         </span>
                         <span className="flex items-center gap-2">
@@ -325,7 +325,7 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
                 </div>
             )}
 
-            <div className="mt-3 text-xs text-[#37003c] text-right opacity-60">
+            <div className="mt-3 text-xs text-white text-right opacity-60">
                 Updates every 5 minutes
             </div>
         </div>

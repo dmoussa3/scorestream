@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS goals (
     penalty_goal    BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMP DEFAULT NOW(),
 
-    UNIQUE(game_id, player_id, minute, goal_type)
+    UNIQUE(game_id, player_id, seconds)
 );
 
 -- ── Season Stats ───────────────────────────────────────────────────────

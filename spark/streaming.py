@@ -216,15 +216,16 @@ def process_goals(df_batch, batch_id):
                 cursor.execute("""
                     INSERT INTO goals (game_id, league, player_id, player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (game_id, player_id, minute, goal_type) DO UPDATE SET
+                    ON CONFLICT (game_id, player_id, seconds) DO UPDATE SET
                         goal_type = EXCLUDED.goal_type,
                         minute = EXCLUDED.minute,
-                        league = EXCLUDED.league
+                        league = EXCLUDED.league,
+                        player_name = EXCLUDED.player_name
                 """, (
                     row.game_id,
                     goal.league,
                     goal.player_id,
-                    goal.player_name,
+                    goal.player_name or "Unknown",
                     goal.team_id,
                     goal.minute,
                     goal.seconds,

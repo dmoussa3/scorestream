@@ -67,8 +67,10 @@ export default function PipelineTab({active}) {
 
             {/* Page header */}
             <div>
-                <h2 className="text-lg font-semibold text-[#37003c]">Pipeline Health</h2>
-                <p className="text-sm text-[#37003c] opacity-60 mt-0.5">
+                <h2 className="text-lg font-semibold text-white">
+                    Pipeline Health
+                </h2>
+                <p className="text-sm text-white opacity-60 mt-0.5">
                     Real-time status of all ScoreStream pipeline components — updates every 60s
                 </p>
             </div>

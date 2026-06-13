@@ -98,10 +98,10 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
       return () => clearInterval(timer)
     }, [game])
 
-    if (!gameId) return <div className="text-[#37003c] p-4">Please select a game from the Scores tab to view details.</div>;
-    if (loading) return <div className="text-[#37003c] p-4">Loading game details...</div>;
-    if (error) return <div className="text-[#37003c] p-4">Error: {gameError || goalsError}</div>;
-    if (!game) return <div className="text-[#37003c] p-4">Game not found.</div>;
+    if (!gameId) return <div className="text-red-400 p-4">Please select a game from the Scores tab to view details.</div>;
+    if (loading) return <div className="p-4" style={{ color: theme?.accent }}>Loading standings...</div>
+    if (error)   return <div className="p-4 text-red-400">Error: {error}</div>
+    if (!game) return <div className="text-red-400 p-4">Game not found.</div>;
 
     const progressPercent = getPercentage(game, elapsedSeconds)
     const isLive = game && LIVE_STATUSES.includes(game.status)

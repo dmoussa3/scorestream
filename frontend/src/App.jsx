@@ -26,6 +26,7 @@ const LEAGUE_THEMES = {
         text:       '#00ff85',
 		home: 	 	'#0d71db',
 		away: 	 	'#d11e1b',
+		pageBg:    '#1a0020',
         name:       'Premier League',
     },
     laliga: {
@@ -36,6 +37,7 @@ const LEAGUE_THEMES = {
         text:       '#ff4500',
 		home: 	 	'#0d71db',
 		away: 	 	'#ffcccb',
+		pageBg:    '#001a33',
         name:       'La Liga',
     },
     bundesliga: {
@@ -46,6 +48,7 @@ const LEAGUE_THEMES = {
         text:       '#ffffff',
 		home: 	 	'#0d71db',
 		away: 	 	'#ffcccb',
+		pageBg:    '#4a0006',
         name:       'Bundesliga',
     },
     seriea: {
@@ -55,7 +58,8 @@ const LEAGUE_THEMES = {
         border:     '#0066cc',
         text:       '#0096ff',
 		home: 	 	'#6d0db7',
-		away: 	 	'#ffcccb',
+		away: 	 	'#ff1a1a',
+		pageBg:    '#0d0d1a',
         name:       'Serie A',
     },
     ligue1: {
@@ -65,7 +69,8 @@ const LEAGUE_THEMES = {
         border:     '#0044cc',
         text:       '#ffffff',
 		home: 	 	'#0d71db',
-		away: 	 	'#ffcccb',
+		away: 	 	'#ff1a1a',
+		pageBg:    '#001040',
         name:       'Ligue 1',
     },
 	worldcup: {
@@ -74,6 +79,9 @@ const LEAGUE_THEMES = {
         accent:    '#ffd700',   // gold
         border:    '#004aad',
         text:      '#ffd700',
+		home: 	 	'#0d71db',
+		away: 	 	'#ff1a1a',
+		pageBg:    '#001030',
         name:      'World Cup',
     },
 }
@@ -124,10 +132,14 @@ export default function App() {
 		root.style.setProperty('--accent-color', theme.accent)
 		root.style.setProperty('--border-color', theme.border)
 		root.style.setProperty('--text-color', theme.text)
+
+		document.body.style.backgroundColor = theme.pageBg
 	})
 
 	return (
-		<div className="min-h-screen bg-white text-[#37003c] transition-all duration-300">
+		<div className="min-h-screen transition-colors duration-300"
+    		style={{ backgroundColor: theme.pageBg, color: theme.accent }}
+		>
 
 			{/* Header */}
 			<header style={{ backgroundColor: theme.primary, borderColor: theme.accent }}
@@ -226,7 +238,9 @@ export default function App() {
 			</nav>
 
 			{/* Tab content */}
-			<main className="p-6 bg-white">
+			<main className="p-6 transition-colors duration-300"
+    			style={{ backgroundColor: theme.pageBg }}
+			>
 			{activeTab === 'scores' && (
 				<ScoresTab onSelectGame={handleSelectedGame} lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />
 			)}

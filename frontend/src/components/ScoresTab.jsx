@@ -1,10 +1,20 @@
 import { useGameWatcher } from '../hooks/useGameWatcher'
 import { useNotifications } from '../hooks/useNotifications'
-import { use, useCallback, useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { useSubscriptions } from '../hooks/useSubscriptions'
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
 const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_POSTPONED', 'STATUS_CANCELLED', 'STATUS_ABANDONED']
+const toUtcDate = (dateStr) => {
+    if (!dateStr) return null
+    // PostgreSQL returns '+00' but JavaScript needs '+00:00' or 'Z'
+    // Replace '+00' at end with 'Z' for valid ISO format
+    const normalized = dateStr
+        .replace(' ', 'T')        // '2026-06-14 23:00:00+00' → '2026-06-14T23:00:00+00'
+        .replace(/\+00$/, 'Z')    // '+00' at end → 'Z'
+        .replace(/\+00:00$/, 'Z') // '+00:00' at end → 'Z'
+    return new Date(normalized)
+}
 
 export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
     const [games, setGames] = useState(null)
@@ -55,9 +65,76 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
     if (error)   return <div className="text-red-400 p-4">Error loading matches: {error}</div>
     if (!games?.length) return <div className="text-[#37003c] p-4">No matches found today.</div>
 
-    const live = games.filter(g => LIVE_STATUSES.includes(g.status)).sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-    const completed = games.filter(g => FINAL_STATUSES.includes(g.status)).sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-    const upcoming  = games.filter(g => !LIVE_STATUSES.includes(g.status) && !FINAL_STATUSES.includes(g.status)).sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+    const groupByDate = (games) => {
+        const groups = {}
+
+        // Compare dates in Eastern time
+        const easternDate = (dateStr) => {
+            if (!dateStr) return null
+            const normalized = dateStr
+                .replace(' ', 'T')
+                .replace(/\+00:00$/, 'Z')
+                .replace(/\+00$/, 'Z')
+            return new Date(normalized).toLocaleDateString('en-US', {
+                timeZone: 'America/New_York'
+            })
+        }
+
+        const todayEastern    = easternDate(new Date().toISOString())
+        const tomorrowD       = new Date()
+        tomorrowD.setDate(tomorrowD.getDate() + 1)
+        const tomorrowEastern = easternDate(tomorrowD.toISOString())
+        const yesterdayD      = new Date()
+        yesterdayD.setDate(yesterdayD.getDate() - 1)
+        const yesterdayEastern = easternDate(yesterdayD.toISOString())
+
+        games.forEach(game => {
+            const normalized = (game.start_time || '')
+                .replace(' ', 'T')
+                .replace(/\+00:00$/, 'Z')
+                .replace(/\+00$/, 'Z')
+
+            const gameDate    = new Date(normalized)
+            const gameDateEDT = gameDate.toLocaleDateString('en-US', {
+                timeZone: 'America/New_York'
+            })
+
+            const dateKey = gameDateEDT === todayEastern
+                ? 'Today'
+                : gameDateEDT === tomorrowEastern
+                ? 'Tomorrow'
+                : gameDateEDT === yesterdayEastern
+                ? 'Yesterday'
+                : gameDate.toLocaleDateString('en-US', {
+                    weekday:  'long',
+                    month:    'long',
+                    day:      'numeric',
+                    timeZone: 'America/New_York',
+                })
+
+            if (!groups[dateKey]) groups[dateKey] = []
+            groups[dateKey].push(game)
+        })
+
+        Object.keys(groups).forEach(key => {
+            groups[key].sort((a, b) => {
+                const aLive = LIVE_STATUSES.includes(a.status)
+                const bLive = LIVE_STATUSES.includes(b.status)
+                if (aLive && !bLive) return -1
+                if (!aLive && bLive) return 1
+                return toUtcDate(a.start_time) - toUtcDate(b.start_time)
+            })
+        })
+
+        return groups
+    }
+
+    const groupedGames = groupByDate(games)
+    const sortedDates = Object.keys(groupedGames).sort((a, b) => {
+        const dateA = toUtcDate(groupedGames[a][0]?.start_time)
+        const dateB = toUtcDate(groupedGames[b][0]?.start_time)
+        return dateA - dateB
+    })
 
     return (
         <div className="space-y-8">
@@ -85,16 +162,53 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
                 </button>
             </div>
 
-            <Section title="Completed" accent="gray" games={completed} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} theme={theme} />
-            <Section title="Live" accent="green" games={live} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} theme={theme} />
-            <Section title="Upcoming" accent="blue" games={upcoming} onSelect={onSelectGame} isSubscribed={isSubscribed} onToggleSubscription={toggle} notificationsActive={isActive} theme={theme} />
+            {sortedDates.map(dateLabel => (
+                <div key={dateLabel}>
+                    {/* Date header */}
+                    <div className="flex items-center gap-3 mb-3">
+                        <h2
+                            className="text-sm font-semibold uppercase tracking-wider"
+                            style={{
+                                color: dateLabel === 'Today'
+                                    ? theme?.accent
+                                    : 'rgba(255,255,255,0.6)'
+                            }}
+                        >
+                            {dateLabel}
+                        </h2>
+                        {dateLabel === 'Today' && (
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                style={{ backgroundColor: theme?.accent, color: theme?.primary }}
+                            >
+                                LIVE
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Game cards for this date */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {groupedGames[dateLabel].map(game => (
+                            <GameCard
+                                key={game.game_id}
+                                game={game}
+                                onSelect={onSelectGame}
+                                isSubscribed={isSubscribed(game.game_id)}
+                                onToggleSubscription={() => toggle(game.game_id)}
+                                notificationsActive={isActive}
+                                theme={theme}
+                            />
+                        ))}
+                    </div>
+                </div>
+            ))}
 
             {/* Legend */}
             <div className="border-t border-gray-200 pt-6">
                 <p className="text-xs font-semibold uppercase tracking-wider text-[#37003c] opacity-60 mb-3">
                     Legend
                 </p>
-                <div className="flex flex-wrap gap-4 text-xs text-[#37003c]">
+                <div className="flex flex-wrap gap-4 text-xs text-white">
                     <span className="flex items-center gap-2">
                         <span className="px-2 py-0.5 rounded bg-[#00ff85] text-[#37003c] font-semibold">
                             🔴
@@ -124,29 +238,6 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
                         Click any card to view match details
                     </span>
                 </div>
-            </div>
-        </div>
-    )
-}
-
-function Section({ title, accent, games, onSelect, isSubscribed, onToggleSubscription, notificationsActive, theme }) {
-    if (!games.length) return null
-
-    const colors = {
-        green: 'text-[#37003c] font-bold',
-        gray:  'text-[#37003c] font-bold',
-        blue:  'text-[#37003c] font-bold'
-    }
-
-    return (
-        <div>
-            <h2 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${colors[accent]}`}>
-                {title} — {games.length} match{games.length !== 1 ? 'es' : ''}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {games.map(game => (
-                    <GameCard key={game.game_id} game={game} onSelect={onSelect} isSubscribed={isSubscribed(game.game_id)} onToggleSubscription={() => {onToggleSubscription(game.game_id)}} notificationsActive={notificationsActive} theme={theme} />
-                ))}
             </div>
         </div>
     )
@@ -193,7 +284,7 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
     const isLive = LIVE_STATUSES.includes(game.status)
     const isFinal = FINAL_STATUSES.includes(game.status)
 
-    const startTimeUTC = game.start_time ? new Date(game.start_time + 'Z') : null
+    const startTimeUTC = toUtcDate(game.start_time)
 
     const formattedTime = startTimeUTC?.toLocaleTimeString('en-US', {
         hour: 'numeric',
@@ -258,7 +349,7 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
 
             <div className='text-center text-xs text-purple-300 mb-4'>
                 <span className="text-sm text-purple-300">
-                    {new Date(startTimeUTC).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {startTimeUTC?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
             </div>
 
