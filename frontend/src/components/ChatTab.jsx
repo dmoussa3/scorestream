@@ -192,7 +192,7 @@ function ChatChart({ chart, theme }) {
 export default function ChatTab({ theme }) {
     const [messages, setMessages] = useState([{
         role: "assistant",
-        content: "Hi! I'm your football assistant. Ask me anything about live scores, goal scorers, or current standings in the Top 5 European Leagues, and I'll do my best to help you out!"
+        content: "Hi! I'm your football assistant. Ask me anything about live scores, goal scorers, or current standings in the Top 5 European Leagues and the 2026 FIFA World Cup, and I'll do my best to help you out!"
     }]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -293,7 +293,7 @@ export default function ChatTab({ theme }) {
                         {msg.role === 'assistant' && msg.sql && (
                             <button
                                 onClick={() => toggleSql(i)}
-                                style={{ color: theme.secondary }}
+                                style={{ color: theme.text }}
                                 className="text-xs mt-1 opacity-60 hover:opacity-100 transition-opacity self-start"
                             >
                                 {showSql[i] ? 'hide query' : 'show query'}
