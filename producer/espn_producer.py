@@ -64,7 +64,7 @@ def fetch_scoreboard(league: str) -> list[dict]:
     """Return list of raw game objects from ESPN scoreboard."""
     events = []
 
-    for day_offset in [-2, -1, 0, 1, 2, 3]:  # fetch yesterday's and tomorrow's games to catch late updates
+    for day_offset in [-4, -3, -2, -1, 0, 1, 2, 3]:  # fetch yesterday's and tomorrow's games to catch late updates
         date_str = (datetime.now() + timedelta(days=day_offset)).strftime("%Y%m%d")
         url = f"{ESPN_BASE}/{league}/scoreboard?dates={date_str}"
 

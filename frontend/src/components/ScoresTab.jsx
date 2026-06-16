@@ -87,7 +87,7 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
         const yesterdayD      = new Date()
         yesterdayD.setDate(yesterdayD.getDate() - 1)
         const yesterdayEastern = easternDate(yesterdayD.toISOString())
-
+        
         games.forEach(game => {
             const normalized = (game.start_time || '')
                 .replace(' ', 'T')

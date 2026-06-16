@@ -36,12 +36,6 @@ function ChatChart({ chart, theme }) {
         ? chart.y_key
         : allKeys.find(k => typeof firstRow[k] === 'number' && k !== xKey)
 
-
-    console.log('[ChatChart] type:', chart.chart_type)
-    console.log('[ChatChart] xKey:', xKey, 'yKey:', yKey)
-    console.log('[ChatChart] data:', data)
-    console.log('[ChatChart] first row keys:', Object.keys(data?.[0] || {}))
-
     const COLORS = [
         theme.accent, '#8b5cf6', '#3b82f6', '#ef4444',
         '#f97316', '#10b981', '#f59e0b', '#06b6d4'
@@ -52,6 +46,14 @@ function ChatChart({ chart, theme }) {
 
         return (
             <div style={{ width: '100%', height: 220 }}>
+                {/* Chart title, if provided */}
+                {chart.title && (
+                    <p className="text-xs text-center mb-2 font-medium"
+                        style={{ color: 'rgba(255,255,255,0.7)' }}>
+                        {chart.title}
+                    </p>
+                )}
+
                 <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={data} margin={{ top: 5, right: 20, left: 40, bottom: 40 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
@@ -102,6 +104,14 @@ function ChatChart({ chart, theme }) {
     if (chart.chart_type === 'line') {
         return (
             <div style={{ width: '100%', height: 280 }}>
+                {/* Chart title, if provided */}
+                {chart.title && (
+                    <p className="text-xs text-center mb-2 font-medium"
+                        style={{ color: 'rgba(255,255,255,0.7)' }}>
+                        {chart.title}
+                    </p>
+                )}
+
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={data} margin={{ top: 5, right: 20, left: 40, bottom: 40 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
@@ -148,6 +158,14 @@ function ChatChart({ chart, theme }) {
     if (chart.chart_type === 'pie') {
         return (
             <div style={{ width: '100%', height: 240 }}>
+                {/* Chart title, if provided */}
+                {chart.title && (
+                    <p className="text-xs text-center mb-2 font-medium"
+                        style={{ color: 'rgba(255,255,255,0.7)' }}>
+                        {chart.title}
+                    </p>
+                )}
+                
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie

@@ -112,6 +112,14 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
     const homeGoals = goalsArray.filter(g => g.team_id === game.home_id);
     const awayGoals = goalsArray.filter(g => g.team_id === game.away_id);
 
+    const cleanName = (name) => {
+        if (!name) return 'Unknown'
+        return name
+            .replace(/\s+null\s*/gi, '')   // remove ' null' anywhere
+            .replace(/null\s+/gi, '')       // remove 'null ' at start
+            .trim()
+    }
+
     function TeamLogo({ teamId, team, size=16, isNational = false }) {
         const [imgSrc, setImgSrc] = useState(
             `https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`
@@ -221,7 +229,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                         <div className="space-y-1">
                             {homeGoals.map((g, i) => (
                                 <div key={i} className="text-xs" style={{ color: theme.accent, opacity: 0.8 }}>
-                                    {GOAL_ICON[g.goal_type] || ' ⚽ '} {g.player_name} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
+                                    {GOAL_ICON[g.goal_type] || ' ⚽ '} {cleanName(g.player_name)} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
                                 </div>
                             ))}
                         </div>
@@ -231,7 +239,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                         <div className="space-y-1">
                             {awayGoals.map((g, i) => (
                                 <div key={i} className="text-xs" style={{ color: theme.accent, opacity: 0.8 }}>
-                                    {GOAL_ICON[g.goal_type] || ' ⚽ '} {g.player_name} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
+                                    {GOAL_ICON[g.goal_type] || ' ⚽ '} {cleanName(g.player_name)} {g.own_goal && ' (OG) '} {g.penalty_goal && ' (P) '} {g.minute}
                                 </div>
                             ))}
                         </div>
@@ -311,7 +319,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                                             key={i}
                                             className='absolute w-3 h-3 rounded-full border-2'
                                             style={{ left: `${pos}%`, top: '50%', transform: 'translate(-50%, -50%)', backgroundColor: isHome ? theme.home : theme.away, borderColor: theme.secondary, }}
-                                            title={`${goal.player_name} ${goal.minute}`}
+                                            title={`${cleanName(goal.player_name)} ${goal.minute}`}
                                         />
                                     )
                                 })}
@@ -349,7 +357,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                                                 </div>
                                                 
                                                 <div className={`flex items-center gap-2 flex-1 ${isHome ? 'flex-row' : 'flex-row-reverse'}`}>
-                                                    <span className="text-white font-medium">{goal.player_name}</span>
+                                                    <span className="text-white font-medium">{cleanName(goal.player_name)}</span>
                                                     <span style={{ color: theme.accent, opacity: 0.7 }}className="text-xs"> {goal.goal_type} </span>
                                                 </div>
                                             </div>

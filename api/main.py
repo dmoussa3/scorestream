@@ -5,6 +5,7 @@ Serves live scores, player stats, and standings from PostgreSQL with Redis cachi
 
 import json
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -1136,7 +1137,7 @@ def chat(request: Request, body: dict):
         messages = conversation + [{"role": "user", "content": expanded_question}]
 
         sql_response = anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=1500,
             system=f"""You are a SQL expert for a football data pipeline application called ScoreStream. 
             Given a natural language question, write a PostgreSQL query to answer it based on the following database schema:\n
@@ -1252,8 +1253,8 @@ def chat(request: Request, body: dict):
             }
         
         chart_response = anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
             system=CHART_SYSYTEM_PROMPT,
             messages=[
                 {"role": "user", "content": f"Question: {expanded_question}\n\nData: {json.dumps(rows, default=str)}"}
@@ -1261,7 +1262,7 @@ def chat(request: Request, body: dict):
         )
 
         answer_response = anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=500,
             system=f"""You are a helpful assistant for a football data pipeline application called ScoreStream. 
             Given a natural language question and the SQL query results, provide a clear and concise, natural language answer to the user.
@@ -1305,12 +1306,41 @@ def chat(request: Request, body: dict):
         chart = None
         try:
             chart_text = chart_response.content[0].text.strip()
-            chart_data = json.loads(chart_text)
-            
-            if chart_data.get("should_chart"):
-                chart = chart_data
+
+            if not chart_text:
+                print("[chat] Empty chart response — skipping chart")
+            else :
+                # Strip markdown code fences with regex — handles ```json, ```, and newlines
+                clean = re.sub(r'^```(?:json)?\s*', '', chart_text.strip())
+                clean = re.sub(r'\s*```$', '', clean)
+                clean = clean.strip()
+
+                chart_data = json.loads(clean)
+
+                # Normalize x/y key variations
+                chart_data['x_key'] = (
+                    chart_data.get('x_key') or chart_data.get('x_axis') or
+                    chart_data.get('xKey') or chart_data.get('x')
+                )
+                chart_data['y_key'] = (
+                    chart_data.get('y_key') or chart_data.get('y_axis') or
+                    chart_data.get('yKey') or chart_data.get('y')
+                )
+
+                if chart_data.get('should_chart'):
+                    if chart_data.get('data') and chart_data.get('x_key') and chart_data.get('y_key'):
+                        first_row = chart_data['data'][0] if chart_data['data'] else {}
+                        if chart_data['y_key'] not in first_row:
+                            numeric_keys = [k for k, v in first_row.items() if isinstance(v, (int, float))]
+                            if numeric_keys:
+                                chart_data['y_key'] = numeric_keys[0]
+                        chart = chart_data
+
+        except json.JSONDecodeError as e:
+            print(f"[chat] JSON decode error: {e}")
+            print(f"[chat] Clean text was: {clean[:200] if 'clean' in locals() else 'not reached'}")
         except Exception as e:
-            print(f"[chat] Error decoding chart data: {e}")
+            print(f"[chat] Chart error: {e}")
 
         return {"answer": answer_response.content[0].text.strip(), "sql": sql, "chart": chart}
     
