@@ -577,6 +577,8 @@ def release_db(conn):
         except Exception as e:
             print(f"[api] Error releasing connection: {e}")
 
+CURRENT_SEASON = 2026
+
 # ── App ──────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -643,7 +645,7 @@ def root():
     return {
         "service": "ScoreStream API",
         "version": "1.0.0",
-        "endpoints": ["/games", "/games/{game_id}/stats", "/standings", "/standings/{top_n}", "/health", "/health/pipeline"],
+        "endpoints": ["/games", "/games/{game_id}/stats", "/standings", "/health", "/health/pipeline"],
     }
 
 @app.websocket("/ws")
@@ -919,16 +921,16 @@ def get_standings(league: str = 'epl'):
             cursor.execute("""
                 SELECT *
                 FROM standings
-                WHERE league = %s
+                WHERE league = %s AND season = %s
                 ORDER BY group_name ASC, rank ASC
-            """, (league, ))
+            """, (league, CURRENT_SEASON))
         else:
             cursor.execute("""
                 SELECT *
                 FROM standings
-                WHERE league = %s
+                WHERE league = %s AND season = %s
                 ORDER BY rank ASC
-            """, (league, ))
+            """, (league, CURRENT_SEASON))
 
         rows = [dict(r) for r in cursor.fetchall()]
 

@@ -16,6 +16,8 @@ LEAGUES = {
     'worldcup': 'fifa.world'
 }
 
+CURRENT_SEASON = 2026
+
 def fetch_standings(league_name: str, league_id: str):
     url = f"{ESPN_BASE}/{league_id}/standings"
 
@@ -49,6 +51,7 @@ def parse_standings(entry: dict, league_name: str):
         return {
             'team_id': team['id'],
             'league': league_name,
+            'season': CURRENT_SEASON,
             'team_name': team['displayName'],
             'group_name': entry.get('_group_name', None),
             'wins': int(stats.get('wins', 0)),
@@ -84,15 +87,24 @@ def refresh_all_standings(**context):
             records = [parse_standings(e, league_key) for e in entries]
             records = [r for r in records if r is not None]
 
+            current = [r['team_id'] for r in records]
+
+            if current:
+                cursor.execute("""
+                    DELETE FROM standings
+                    WHERE league = %s AND season = %s AND team_id NOT IN %s
+                """, (league_key, CURRENT_SEASON, tuple(current)))
+                print(f"[airflow] {league_key}: deleted {cursor.rowcount} teams not in current standings")
+
             for record in records:
                 cursor.execute("""
                     INSERT INTO standings (
-                        team_id, league, team_name, group_name, wins, draws, losses,
+                        team_id, league, season, team_name, group_name, wins, draws, losses,
                         points, goals_for, goals_against, goal_diff,
                         matches_played, rank, note, note_color, logo_url, last_updated
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (team_id, league) DO UPDATE SET
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (team_id, league, season) DO UPDATE SET
                         group_name     = EXCLUDED.group_name,
                         wins           = EXCLUDED.wins,
                         draws          = EXCLUDED.draws,
@@ -110,6 +122,7 @@ def refresh_all_standings(**context):
                 """, (
                     record["team_id"],
                     record["league"],
+                    record["season"],
                     record["team_name"],
                     record["group_name"],
                     record["wins"],

@@ -20,6 +20,9 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
     const [games, setGames] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
+
+    const todayRef = useRef(null)
+    const hasScrolledToToday = useRef(false)
     
     const [notificationsEnabled, setNotificationsEnabled] = useState(Notification.permission === 'granted')
     const { notify } = useNotifications()
@@ -58,6 +61,22 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
         const interval = setInterval(fetchGames, 60 * 1000) // Poll every 60 seconds
         return () => clearInterval(interval)
     }, [fetchGames])
+
+    useEffect(() => {
+        hasScrolledToToday.current = false
+    }, [league]) // Refetch when league changes
+
+    useEffect(() => {
+        if (!games?.length || hasScrolledToToday.current) return
+
+        const timer = setTimeout(() => {
+            if (todayRef.current) {
+                todayRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+            hasScrolledToToday.current = true
+        }, 100) // Delay to ensure DOM has rendered
+        return () => clearTimeout(timer)
+    }, [games])
 
     useGameWatcher(games, conditionallyEnableNotifications, subscriptions)
 
@@ -163,7 +182,7 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
             </div>
 
             {sortedDates.map(dateLabel => (
-                <div key={dateLabel}>
+                <div key={dateLabel} ref={dateLabel === 'Today' ? todayRef : null}>
                     {/* Date header */}
                     <div className="flex items-center gap-3 mb-3">
                         <h2

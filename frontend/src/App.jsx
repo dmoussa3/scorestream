@@ -140,102 +140,113 @@ export default function App() {
 		<div className="min-h-screen transition-colors duration-300"
     		style={{ backgroundColor: theme.pageBg, color: theme.accent }}
 		>
+			<div className="sticky top-0 z-50">
+				{/* Header */}
+				<header style={{ backgroundColor: theme.primary, borderColor: theme.accent }}
+					className="border-b px-6 py-4 flex items-center justify-center relative transition-colors duration-300">
+				<h1 className="text-xl font-bold text-white">⚽ ScoreStream ⚽</h1>
 
-			{/* Header */}
-			<header style={{ backgroundColor: theme.primary, borderColor: theme.accent }}
-				className="border-b px-6 py-4 flex items-center justify-center relative transition-colors duration-300">
-			<h1 className="text-xl font-bold text-white">⚽ ScoreStream ⚽</h1>
-
-			<div className='absolute right-6 flex items-center gap-2'>
-				{/* WebSocket connection indicator */}
-				<span className={`text-xs px-2 py-1 rounded font-medium ${
-					connected
-						? 'bg-[#00ff85] text-[#37003c]'
-						: 'bg-red-900 text-red-300'
-				}`}>
-					{connected ? '🟢 WebSocket Live' : '🔴 Reconnecting...'}
-				</span>
-				<span className={`text-sm px-2 py-1 rounded ${
-						apiStatus === 'connected' ? 'bg-[#00ff85] text-[#37003c] font-semibold' :
-						apiStatus === 'unreachable' ? 'bg-red-900 text-red-300' :
-						'bg-yellow-900 text-yellow-300'
-				}`}>
-					API: {apiStatus}
-				</span>
-			</div>
-			</header>
-
-			{/* Tab navigation */}
-			<nav style={{ backgroundColor: theme.primary, borderColor: theme.border }} 
-				className="border-b px-6 py-3 transition-colors duration-300">
-				<div className="flex flex-col items-center gap-3 py-1">
-
-					<div className='flex gap-1'>
-						{tabs.map(tab => (
-						<button
-							key={tab}
-							onClick={() => setActiveTab(tab)}
-							className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-							activeTab === tab
-								? 'border-[#00ff85] text-[#00ff85]'
-								: 'border-transparent text-purple-300 hover:text-white'
-							}`}
-						>
-							{tab === 'match' ? 'Match Detail' :
-							tab === 'chat' ? 'Ask ScoreStream AI' :
-							tab === 'pipeline' ? 'Pipeline Health' : tab}
-						</button>
-						))}
-					</div>
-
-					{/* League selector - only show on scores and standings tab */}
-					{(activeTab === 'scores' || activeTab === 'standings') && (
-						<div className='flex items-center gap-2'>
-							{availableLeagues.map(l => {
-								const isSelected = l === selectedLeague
-								const colors = LEAGUE_COLORS[l] || LEAGUE_COLORS.epl
-								return (
-									<button
-										key={l}
-										onClick={() => setSelectedLeague(l)}
-										style={
-											isSelected ? {
-											backgroundColor: colors.bg,
-											color:           colors.text,
-											borderColor:     colors.border,
-											borderWidth:     '2px',
-											borderStyle:     'solid',
-										} : {
-											backgroundColor: 'transparent',
-											color:           '#c4b5fd',
-											borderColor:     '#ffffff',
-											borderWidth:     '2px',
-											borderStyle:     'solid',
-										}}
-										className={`text-xs px-3 py-1 rounded-full font-medium capitalize transition-colors duration-200`}
-										onMouseEnter={e => {
-											if (!isSelected) {
-												e.currentTarget.style.backgroundColor = colors.bg
-												e.currentTarget.style.color = colors.text
-												e.currentTarget.style.borderColor = colors.border
-											}
-										}}
-										onMouseLeave={e => {
-											if (!isSelected) {
-												e.currentTarget.style.backgroundColor = 'transparent'
-												e.currentTarget.style.color = '#c4b5fd'
-												e.currentTarget.style.borderColor = '#ffffff'
-											}
-										}}
-									>
-										{LEAGUES_NAMES[l] || l.toUpperCase()}
-									</button>
-								)
-							})}
-						</div>
-					)}
+				<div className='absolute right-6 flex items-center gap-2'>
+					{/* WebSocket connection indicator */}
+					<span className={`text-xs px-2 py-1 rounded font-medium ${
+						connected
+							? 'bg-[#00ff85] text-[#37003c]'
+							: 'bg-red-900 text-red-300'
+					}`}>
+						{connected ? '🟢 WebSocket Live' : '🔴 Reconnecting...'}
+					</span>
+					<span className={`text-sm px-2 py-1 rounded ${
+							apiStatus === 'connected' ? 'bg-[#00ff85] text-[#37003c] font-semibold' :
+							apiStatus === 'unreachable' ? 'bg-red-900 text-red-300' :
+							'bg-yellow-900 text-yellow-300'
+					}`}>
+						API: {apiStatus}
+					</span>
 				</div>
-			</nav>
+				</header>
+
+				{/* Tab navigation */}
+				<nav style={{ backgroundColor: theme.primary, borderColor: theme.border }} 
+					className="border-b px-6 py-3 transition-colors duration-300">
+					<div className="flex flex-col items-center gap-3 py-1">
+
+						<div className='flex gap-1'>
+							{tabs.map(tab => (
+							<button
+								key={tab}
+								onClick={() => setActiveTab(tab)}
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
+								activeTab === tab
+									? 'border-[#00ff85] text-[#00ff85]'
+									: 'border-transparent text-purple-300 hover:text-white'
+								}`}
+							>
+								{tab === 'match' ? 'Match Detail' :
+								tab === 'chat' ? 'Ask ScoreStream AI' :
+								tab === 'pipeline' ? 'Pipeline Health' : tab}
+							</button>
+							))}
+						</div>
+
+						{/* League selector - only show on scores and standings tab */}
+						{(activeTab === 'scores' || activeTab === 'standings') && (
+							<div className='flex items-center gap-2'>
+								{availableLeagues.map(l => {
+									const isSelected = l === selectedLeague
+									const colors = LEAGUE_COLORS[l] || LEAGUE_COLORS.epl
+									return (
+										<button
+											key={l}
+											onClick={() => setSelectedLeague(l)}
+											style={
+												isSelected ? {
+												backgroundColor: colors.bg,
+												color:           colors.text,
+												borderColor:     colors.border,
+												borderWidth:     '2px',
+												borderStyle:     'solid',
+											} : {
+												backgroundColor: 'transparent',
+												color:           '#c4b5fd',
+												borderColor:     '#ffffff',
+												borderWidth:     '2px',
+												borderStyle:     'solid',
+											}}
+											className={`text-xs px-3 py-1 rounded-full font-medium capitalize transition-colors duration-200`}
+											onMouseEnter={e => {
+												if (!isSelected) {
+													e.currentTarget.style.backgroundColor = colors.bg
+													e.currentTarget.style.color = colors.text
+													e.currentTarget.style.borderColor = colors.border
+												}
+											}}
+											onMouseLeave={e => {
+												if (!isSelected) {
+													e.currentTarget.style.backgroundColor = 'transparent'
+													e.currentTarget.style.color = '#c4b5fd'
+													e.currentTarget.style.borderColor = '#ffffff'
+												}
+											}}
+										>
+											{LEAGUES_NAMES[l] || l.toUpperCase()}
+										</button>
+									)
+								})}
+							</div>
+						)}
+					</div>
+				</nav>
+
+				{/* Fade-out gradient below the nav */}
+				<div
+					className="absolute left-0 right-0 pointer-events-none"
+					style={{
+						top: '100%',
+						height: '24px',
+						background: `linear-gradient(to bottom, ${theme.primary}, transparent)`,
+					}}
+				/>
+			</div>
 
 			{/* Tab content */}
 			<main className="p-6 transition-colors duration-300"
