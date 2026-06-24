@@ -37,6 +37,7 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
         try {
             const params = new URLSearchParams()
             if (league) params.append('league', league)
+            params.append('window', 3) // Fetch games within a week from today
             const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/games?${params}`)
             const data = await res.json()
             setGames(data)
@@ -82,7 +83,7 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
 
     if (loading) return <div className="text-gray-400 p-4">Loading matches...</div>
     if (error)   return <div className="text-red-400 p-4">Error loading matches: {error}</div>
-    if (!games?.length) return <div className="text-[#37003c] p-4">No matches found today.</div>
+    if (!games?.length) return <div className="text-white p-4">No matches found within a week from today.</div>
 
     const groupByDate = (games) => {
         const groups = {}

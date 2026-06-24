@@ -18,9 +18,16 @@ const SUGGESTED_QUESTIONS = [
 function ChatChart({ chart, theme }) {
 
     // Parse data if it came back as a string
-    const data = typeof chart.data === 'string'
-        ? JSON.parse(chart.data)
-        : chart.data
+    const data = (typeof chart.data === 'string' ? JSON.parse(chart.data) : chart.data)
+        .map(row => {
+            const cleaned = {...row}
+            Object.keys(cleaned).forEach(k => {
+                if (typeof cleaned[k] === 'string' && Number.isInteger(Math.round(cleaned[k]))) {
+                    cleaned[k] = Math.round(cleaned[k])
+                }
+            })
+            return cleaned
+        })
 
     if (!chart?.should_chart || !data?.length) return null
 
@@ -40,6 +47,11 @@ function ChatChart({ chart, theme }) {
         theme.accent, '#8b5cf6', '#3b82f6', '#ef4444',
         '#f97316', '#10b981', '#f59e0b', '#06b6d4'
     ]
+
+    const formatValue = (value) => {
+        if (typeof value !== 'number') return value
+        return Math.round(value)
+    }
 
     if (chart.chart_type === 'bar') {
         const hasNegatives = data.some(d => d[yKey] < 0)
@@ -72,6 +84,7 @@ function ChatChart({ chart, theme }) {
                             tickLine={false}
                             axisLine={false}
                             domain={['auto', 'auto']}
+                            tickFormatter={formatValue}
                         />
                         <Tooltip
                             contentStyle={{
@@ -83,6 +96,7 @@ function ChatChart({ chart, theme }) {
                             }}
                             labelStyle={{ color: theme.accent }}
                             itemStyle={{ color: '#ffffff' }}
+                            formatter={(value) => formatValue(value)}
                         />
                         {hasNegatives && (
                             <ReferenceLine y={0} stroke="rgba(255,255,255,0.3)" strokeWidth={1} />
@@ -129,6 +143,7 @@ function ChatChart({ chart, theme }) {
                             tickLine={false}
                             axisLine={false}
                             domain={['auto', 'auto']}
+                            tickFormatter={formatValue}
                         />
                         <Tooltip
                             contentStyle={{
@@ -140,6 +155,7 @@ function ChatChart({ chart, theme }) {
                             }}
                             labelStyle={{ color: theme.accent }}
                             itemStyle={{ color: '#ffffff' }}
+                            formatter={(value) => formatValue(value)}
                         />
                         <Line
                             type="monotone"
@@ -207,13 +223,14 @@ function ChatChart({ chart, theme }) {
     return null
 }
 
-export default function ChatTab({ theme }) {
+export default function ChatTab({ theme, isConnected, sendQuestion }) {
     const [messages, setMessages] = useState([{
         role: "assistant",
-        content: "Hi! I'm your football assistant. Ask me anything about live scores, goal scorers, or current standings in the Top 5 European Leagues and the 2026 FIFA World Cup, and I'll do my best to help you out!"
+        content: "Hi! I'm your Football Assistant. Ask me anything about live scores, goal scorers, or current standings in the Top 5 European Leagues and the 2026 FIFA World Cup, and I'll do my best to help you out!"
     }]);
+
     const [input, setInput] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [streaming, setStreaming] = useState(false);
     const messagesEndRef = useRef(null);
     const [showSql, setShowSql] = useState({})
     const toggleSql = (index) => setShowSql(prev => ({ ...prev, [index]: !prev[index] }))
@@ -224,44 +241,58 @@ export default function ChatTab({ theme }) {
 
     const sendMessage = async (question) => {
         const q = question || input.trim();
-        if (!q || loading) return;
+        if (!q || streaming) return;
 
-        const newMessage = { role: "user", content: q };
-        const updatedMessages = [...messages, newMessage];
-        setMessages(updatedMessages);
-        setInput('');
-        setLoading(true);
-
-        const history = updatedMessages
+        const history = messages
             .filter(m => !(m.role === 'assistant' && m.content.startsWith("Hi!")))  // exclude initial greeting
             .map(m => ({ role: m.role, content: m.content }));
 
-        try {
-            const response = await fetch(`${API}/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ question: q, conversation: history.slice(0, -1) })
-            });
-            const data = await response.json()
-            setMessages(prev => [...prev, { role: "assistant", content: data.answer, chart: data.chart || null, sql: data.sql || null }]);
-        } catch (error) {
-            console.error('Error sending message:', error);
+        setMessages(prev => [...prev, { role: "user", content: q }, { role: "assistant", content: "", chart: null, sql: null }]);
+        setInput('');
+        setStreaming(true);
 
-            let chart = data.chart || null
-            if (chart) {
-                chart = {
-                    ...chart,
-                    x_key: chart.x_key || chart.x_axis || chart.xKey || chart.x || null,
-                    y_key: chart.y_key || chart.y_axis || chart.yKey || chart.y || null,
-                }
-            }
-
-            setMessages(prev => [...prev, { role: "assistant", content: data.answer, chart: data.chart || null, sql: data.sql || null }]);
-        } finally {
-            setLoading(false);
-        }
+        sendQuestion(q, history, {
+            onSql: (sql) => {
+                setMessages(prev => {
+                    const updated = [...prev]
+                    updated[updated.length - 1] = { ...updated[updated.length - 1], sql }
+                    return updated
+                })
+            },
+            onAnswerStart: () => {},
+            onChunk: (text) => {
+                setMessages(prev => {
+                    const updated = [...prev]
+                    const last = updated[updated.length - 1]
+                    updated[updated.length - 1] = { ...last, content: last.content + text }
+                    return updated
+                })
+            },
+            onDone: (final) => {
+                setMessages(prev => {
+                    const updated = [...prev]
+                    updated[updated.length - 1] = {
+                        ...updated[updated.length - 1],
+                        content: final.message,
+                        chart:   final.chart,
+                        sql:     final.sql,
+                    }
+                    return updated
+                })
+                setStreaming(false)
+            },
+            onError: () => {
+                setMessages(prev => {
+                    const updated = [...prev]
+                    updated[updated.length - 1] = {
+                        ...updated[updated.length - 1],
+                        content: 'Sorry, something went wrong. Please try again.',
+                    }
+                    return updated
+                })
+                setStreaming(false)
+            },
+        })
     }
 
     const handleKeyDown = (e) => {
@@ -273,6 +304,11 @@ export default function ChatTab({ theme }) {
 
     return (
         <div className="max-w-6xl mx-auto flex flex-col" style={{ height: 'calc(100vh - 180px)' }}>
+
+            {/* Connection status */}
+            {!isConnected && (
+                <div className="text-center text-xs text-red-400 mb-2">Reconnecting to Chat..</div>
+            )}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto space-y-4 pb-4">
@@ -289,12 +325,18 @@ export default function ChatTab({ theme }) {
                                 msg.role === 'assistant' ? 'border' : ''
                             }`}
                         >
-                            {msg.content.split('\n').map((line, j) => (
+                            {(msg.content || '').split('\n').map((line, j) => (
                                 <span key={j}>
                                     {line}
-                                    {j < msg.content.split('\n').length - 1 && <br />}
+                                    {j < (msg.content || '').split('\n').length - 1 && <br />}
                                 </span>
                             ))}
+                            {msg.role === 'assistant' && i === messages.length - 1 && streaming && (
+                                <span
+                                    className="inline-block w-1 h-4 ml-1 animate-pulse"
+                                    style={{ backgroundColor: theme.accent }}
+                                />
+                            )}
                         </div>
 
                         {/* Chart — full width, outside the bubble */}
@@ -330,17 +372,6 @@ export default function ChatTab({ theme }) {
                     </div>
                 ))}
 
-                {loading && (
-                    <div className="flex justify-start">
-                        <div
-                            style={{ backgroundColor: theme.secondary, borderColor: theme.border }}
-                            className="border px-4 py-3 rounded-2xl text-sm text-gray-400"
-                        >
-                            <span className="animate-pulse">Thinking...</span>
-                        </div>
-                    </div>
-                )}
-
                 <div ref={messagesEndRef} />
             </div>
 
@@ -374,7 +405,7 @@ export default function ChatTab({ theme }) {
                 />
                 <button
                     onClick={() => sendMessage()}
-                    disabled={!input.trim() || loading}
+                    disabled={!input.trim() || streaming}
                     style={{ backgroundColor: theme.accent, color: theme.primary }}
                     className="px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-opacity"
                 >

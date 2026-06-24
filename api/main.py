@@ -157,6 +157,13 @@ Note on leagues:
 - home_team and away_team are national team abbreviations (e.g. 'ENG', 'BRA', 'ARG')
 - home_team_name and away_team_name are full country names (e.g. 'England', 'Brazil')
 
+Note on goal classification:
+- There is no explicit "open play" flag — it is DERIVED, not stored directly
+- A goal is "open play" when BOTH own_goal = false AND penalty_goal = false
+- A goal is a "penalty" when penalty_goal = true
+- A goal is an "own goal" when own_goal = true
+- These three categories are mutually exclusive and together cover all goals
+
 Example queries:
 
 -- Who scored in Arsenal's last game?
@@ -231,6 +238,38 @@ FROM standings
 WHERE league = 'laliga'
 ORDER BY goal_diff DESC
 LIMIT 5;
+
+-- What proportion of goals were open play vs penalties vs own goals in the Premier League?
+SELECT 
+    CASE 
+        WHEN own_goal = true THEN 'Own Goal'
+        WHEN penalty_goal = true THEN 'Penalty'
+        ELSE 'Open Play'
+    END AS goal_category,
+    COUNT(*)::int as count
+FROM goals
+WHERE league = 'epl'
+GROUP BY goal_category
+ORDER BY count DESC;
+
+-- How many goals were scored from open play, penalties, and own goals today?
+SELECT 
+    CASE 
+        WHEN gl.own_goal = true THEN 'Own Goal'
+        WHEN gl.penalty_goal = true THEN 'Penalty'
+        ELSE 'Open Play'
+    END AS goal_category,
+    COUNT(*)::int as count
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE DATE(gm.start_time) = CURRENT_DATE
+GROUP BY goal_category
+ORDER BY count DESC;
+
+- For questions comparing goal types (open play vs penalty vs own goal), 
+  derive the category using a CASE statement as shown in the examples above — 
+  never say this data is unavailable, it can always be computed from 
+  own_goal and penalty_goal flags
 
 -- How many goals were scored today?
 SELECT COUNT(*) as total_goals, g.league
@@ -376,6 +415,13 @@ FROM season_stats
 WHERE league = 'epl' AND season = 2025
 ORDER BY assists DESC
 LIMIT 10;
+
+-- Who is the top scorer in Ligue 1?
+SELECT 
+    gl.player_name,
+    COUNT(*)::int as goals,   -- ← explicit cast
+    ...
+FROM goals gl
 
 -- Show me a player's full stats
 SELECT player_name, team_name, goals, assists, penalties
@@ -790,11 +836,11 @@ def get_status(last_updated, threshold_minutes):
 
 @app.get("/games")
 @limiter.limit("60/minute")
-def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea|worldcup)$")):
+def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea|worldcup)$"), window: Optional[int] = Query(None, ge=1, le=30)):
     """
     Return all games, optionally filtered by status and league.
     """
-    cache_key = f"games:{status or 'all'}:{league or 'all'}"
+    cache_key = f"games:{status or 'all'}:{league or 'all'}:{window or 'all'}"
     cached = cache.get(cache_key)
     if cached:
         return json.loads(cached)
@@ -814,7 +860,12 @@ def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STA
 
         if league:
             conditions.append("league = %s")
-            params.append(league)     
+            params.append(league)
+
+        if window:
+            conditions.append("start_time BETWEEN NOW() - (%s || ' days')::interval AND NOW() + (%s || ' days')::interval")
+            params.append(window)
+            params.append(window)     
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -1159,6 +1210,10 @@ def chat(request: Request, body: dict):
             This catches any completed status including abandoned games
             - For questions like 'what happened', 'tell me about', 'how did it go', 'recap' — 
             always JOIN goals and include scorer information, not just the final score
+            - For "how many" or "are there any" questions, always use COUNT(*) so the result 
+            has exactly one row even when the count is 0 — never rely on an empty result 
+            set to represent zero
+            - A COUNT of 0 is a valid, meaningful answer — not a missing-data situation
             - When asked about "top goal scorers" or "who scored the most goals", use the season_stats table, not the goals table, since the goals table only contains recent events and may not have complete season data, same goes for questions about assists and penalties
             - When asked about the current season's stats for a player, use the season_stats table, not the goals table
             - When asked about a team's form over a period of time, use points as the metric, not goals scored
@@ -1223,7 +1278,7 @@ def chat(request: Request, body: dict):
 
         forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE"]
         if any(word in sql.upper() for word in forbidden):
-            return {"answer": "I can only answer read-only questions about match data. Please rephrase your question.", "chart": None}
+            return {"message": "I can only answer read-only questions about match data. Please rephrase your question.", "chart": None}
         
         conn = get_db()
         cursor = get_db_cursor(conn)
@@ -1238,22 +1293,24 @@ def chat(request: Request, body: dict):
         if not rows:
             # Detect what kind of question it was and return appropriate message
             q_lower = expanded_question.lower()
-            
-            if any(word in q_lower for word in ['live', 'in progress', 'playing now', 'currently playing']):
-                empty_message = "There are no live games right now. Check back during a matchday."
-            elif any(word in q_lower for word in ['upcoming', 'next', 'tomorrow', 'today', 'schedule', 'fixture']):
-                empty_message = "There are no upcoming games in the database at the moment. The producer polls ESPN every 30 seconds so fixtures should appear shortly before matchday."
-            elif any(word in q_lower for word in ['standing', 'table', 'rank', 'position']):
-                empty_message = "No standings data found for that league. Try triggering the standings DAG or wait for the next scheduled refresh."
-            else:
-                empty_message = "I couldn't find any data matching that query. Try rephrasing or asking about a different league or time period."
 
-            return {
-                "answer": empty_message,
-                "chart":  None,
-                "sql":    sql,
-            }
-        
+            if any(word in q_lower for word in ['live', 'in progress', 'playing now']):
+                empty_message = "There are no live games right now. Check back during a matchday."
+            elif any(word in q_lower for word in ['upcoming', 'next', 'tomorrow', 'schedule', 'fixture']):
+                empty_message = "There are no upcoming games in the database at the moment."
+            elif any(word in q_lower for word in ['penalty', 'penalties']):
+                empty_message = "No penalty goals have been recorded for that query — it's possible none have been scored yet."
+            elif any(word in q_lower for word in ['own goal']):
+                empty_message = "No own goals have been recorded for that query."
+            elif any(word in q_lower for word in ['goal', 'score', 'scored', 'scorer']):
+                empty_message = "No goals found for that query. The game may not have started yet or no goals have been scored."
+            elif any(word in q_lower for word in ['standing', 'table', 'rank', 'position']):
+                empty_message = "No standings data found for that league."
+            else:
+                empty_message = "I couldn't find any matching results — it's possible this hasn't happened yet, or try rephrasing your question."
+
+            return {"answer": empty_message, "chart": None, "sql": sql}
+                
         chart_response = anthropic_client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1500,
@@ -1340,14 +1397,273 @@ def chat(request: Request, body: dict):
 
         except json.JSONDecodeError as e:
             print(f"[chat] JSON decode error: {e}")
-            print(f"[chat] Clean text was: {clean[:200] if 'clean' in locals() else 'not reached'}")
         except Exception as e:
             print(f"[chat] Chart error: {e}")
 
-        return {"answer": answer_response.content[0].text.strip(), "sql": sql, "chart": chart}
+        return {"message": answer_response.content[0].text.strip(), "sql": sql, "chart": chart}
     
     except Exception as e:
         print(f"[chat] Error: {e}")
-        return {"answer": "Sorry, I couldn't process your question. Try rephrasing it or ask something else about football matches."}
+        return {"message": "Sorry, I couldn't process your question. Try rephrasing it or ask something else about football matches."}
     finally:
         release_db(conn)
+
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    await websocket.accept()
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            question = data.get("question", "").strip()
+            conversation = data.get("conversation", [])
+
+            if not question:
+                await websocket.send_json({"type": "error", "message": "Question is required"})
+                continue
+
+            expanded_question = expand_aliases(question)
+            conn = None
+
+            try:
+                messages = conversation + [{"role": "user", "content": expanded_question}]
+                
+                sql_response = anthropic_client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=1500,
+                    system=f"""You are a SQL expert for a football data pipeline application called ScoreStream. 
+                    Given a natural language question, write a PostgreSQL query to answer it based on the following database schema:\n
+                    {DB_SCHEMA}
+
+                    {TEAM_ALIASES}
+
+                    {WORLD_CUP_CONTEXT}
+
+                    {WORLD_CUP_ALIASES}
+
+                    Rules:
+                    - For completed or finished games use: 
+                    status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_ABANDONED')
+                    - When finding a team's last game use:
+                    status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF')
+                    This catches any completed status including abandoned games
+                    - For questions like 'what happened', 'tell me about', 'how did it go', 'recap' — 
+                    always JOIN goals and include scorer information, not just the final score
+                    - When asked about "top goal scorers" or "who scored the most goals", use the season_stats table, not the goals table, since the goals table only contains recent events and may not have complete season data, same goes for questions about assists and penalties
+                    - When asked about the current season's stats for a player, use the season_stats table, not the goals table
+                    - When asked about a team's form over a period of time, use points as the metric, not goals scored
+                    - ONLY use these tables: games, goals, standings — never reference any other table
+                    - Never use tables like season_stats, player_stats, match_stats or any table not in the schema above
+                    - Never filter by season year — the database contains whatever data has been ingested, no season column exists
+                    - For top scorer queries always COUNT(*) from the goals table joined with games
+                    - Never use season = 2024 when checking season stats, use season = 2025 for the 2025/26 season since season is defined as the start year in the schema
+                    - Always filter out own goals with AND gl.own_goal = false when counting goals for a player
+                    - Any question about open play goals, they refer to any goal in the goals table where penalty_goal = false and the goal_type does not contain 'Penalty' or 'Free-kick' — do not assume that goal_type will always include the word 'Goal' for open play goals, as there are many variations in the data
+                    - When searching for FC Barcelona specifically, always use:
+                    (home_team_name ILIKE '%Barcelona%' AND home_team_name NOT ILIKE '%Espanyol%')
+                    Never use ILIKE '%Barcelona%' alone as it matches Espanyol de Barcelona
+                    - Similarly for other teams whose names appear inside other team names:
+                    AC Milan: use ILIKE '%Milan%' AND NOT ILIKE '%Inter%'
+                    Real Madrid: use ILIKE '%Real Madrid%' (specific enough already)
+                    Real Betis: use ILIKE '%Betis%' not ILIKE '%Real%'
+                    Real Sociedad: use ILIKE '%Sociedad%' not ILIKE '%Real%'
+                    - When the question mentions 'FC Barcelona', always exclude Espanyol:
+                    home_team_name ILIKE '%Barcelona%' AND home_team_name NOT ILIKE '%Espanyol%'
+                    - When the question mentions 'RCD Espanyol' or 'Espanyol', use ILIKE '%Espanyol%' alone
+                    - Any question about a specific game should always include goal scorer data via LEFT JOIN
+                    - Return ONLY the SQL query, no explanation, no markdown, no backticks
+                    - When asked to give information about data over the course of a period of time, if the data doesn't go that far back, use data from the database that goes as far back as possible instead of just saying there's not enough data
+                    - Use ILIKE for team name searches — always search both home_team_name and away_team_name
+                    - When a user mentions a team by nickname or acronym, expand it to the full ESPN name using the aliases above
+                    - For partial name matches use ILIKE '%partial%' — e.g. 'Paris Saint-Germain' → ILIKE '%Paris Saint-Germain%'
+                    - For 'last game' use ORDER BY start_time DESC LIMIT 1 on completed games
+                    - For 'today' use CURRENT_DATE
+                    - For 'this week' use start_time >= CURRENT_DATE - INTERVAL '7 days'
+                    - For form queries always include an 'opponent' column as the x-axis label
+                    - For form queries use 'points' as the y-axis (3=Win, 1=Draw, 0=Loss)
+                    - Format dates using TO_CHAR(start_time, 'Mon DD') for readable labels
+                    - Goals, points, wins, draws, losses, matches_played are always whole numbers — 
+                    cast them explicitly: CAST(COUNT(*) AS INTEGER) or use ::int
+                    - Never return goal/point/win/loss counts as floating point values
+                    - Never use raw timestamp fields as x-axis labels for charts
+                    - When asked questions like for any upcoming games soon, look for games with the status='STATUS_SCHEDULED' and start_time in the future, ordered by start_time ASC
+                    - When asked about games that are or were live today, or live right now, look for games with start_time = CURRENT_DATE
+                    - Limit results to 20 rows maximum
+                    - For league names use: epl, laliga, bundesliga, seriea, ligue1, worldcup
+                    - For World Cup questions always filter with league = 'worldcup'
+                    - National teams use country names — search with ILIKE '%England%' not '%ENG%'
+                    - World Cup standings have a group_name field — always include it when querying standings
+                    - For knockout round results check status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_EXTRA_TIME', 'STATUS_PENALTIES')
+                    - Penalty shootout scores are NOT stored — only the score after extra time is recorded
+                    - For "how many" or "are there any" questions, always use COUNT(*) so the result 
+                    has exactly one row even when the count is 0 — never rely on an empty result 
+                    set to represent zero
+                    - A COUNT of 0 is a valid, meaningful answer — not a missing-data situation
+                    - For 'who qualified' questions use the note field in standings — filter WHERE note ILIKE '%advance%'
+                    - For group standings always ORDER BY rank ASC within each group_name
+                    - The 2026 World Cup has 48 teams split into 12 groups (A through L)
+                    - Top 2 from each group advance plus 8 best third-place teams advance to Round of 32
+                    - Never confuse club team names with national team names
+                    - Never use DROP, DELETE, UPDATE, INSERT or any write operations
+                    - When asking about a team's scorers always JOIN goals with games on game_id
+                    - Every query involving goals MUST include a 'scored_for' column computed as:
+                        CASE WHEN g.team_id = gm.home_id THEN gm.home_team_name
+                            WHEN g.team_id = gm.away_id THEN gm.away_team_name
+                            ELSE 'Unknown Team' END AS scored_for
+                    - If the question cannot be answered return: SELECT 'I cannot answer that with the available data' AS message
+                    """,
+                    messages=messages
+                )
+
+                sql = sql_response.content[0].text.strip()
+                print(f"[chat] Generated SQL: {sql}")
+
+                forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE"]
+                if any(word in sql.upper() for word in forbidden):
+                    await websocket.send_json({"type": "done", "message": "I can only answer read-only questions about match data. Please rephrase your question.", "chat": None})
+                    continue
+
+                await websocket.send_json({"type": "sql", "sql": sql})
+
+                conn = get_db()
+                cursor = get_db_cursor(conn)
+                cursor.execute(sql)
+                rows = [dict(r) for r in cursor.fetchall()]
+
+                for row in rows:
+                    for k, v in row.items():
+                        if hasattr(v, "isoformat"):
+                            row[k] = v.isoformat()
+
+                if not rows:
+                    # Detect what kind of question it was and return appropriate message
+                    q_lower = expanded_question.lower()
+                    
+                    if any(word in q_lower for word in ['live', 'in progress', 'playing now']):
+                        empty_message = "There are no live games right now. Check back during a matchday."
+                    elif any(word in q_lower for word in ['upcoming', 'next', 'tomorrow', 'schedule', 'fixture']):
+                        empty_message = "There are no upcoming games in the database at the moment."
+                    elif any(word in q_lower for word in ['penalty', 'penalties']):
+                        empty_message = "No penalty goals have been recorded for that query — it's possible none have been scored yet."
+                    elif any(word in q_lower for word in ['own goal']):
+                        empty_message = "No own goals have been recorded for that query."
+                    elif any(word in q_lower for word in ['goal', 'score', 'scored', 'scorer']):
+                        empty_message = "No goals found for that query. The game may not have started yet or no goals have been scored."
+                    elif any(word in q_lower for word in ['standing', 'table', 'rank', 'position']):
+                        empty_message = "No standings data found for that league."
+                    else:
+                        empty_message = "I couldn't find any matching results — it's possible this hasn't happened yet, or try rephrasing your question."
+
+                    await websocket.send_json({"type": "done", "message": empty_message, "chart": None, "sql": sql})
+                    continue
+
+                chart_response = anthropic_client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=1500,
+                    system=CHART_SYSYTEM_PROMPT,
+                    messages=[{
+                        "role": "user",
+                        "content": f"Question: {expanded_question}\n\nData: {json.dumps(rows, default=str)}"
+                    }]
+                )
+
+                chart = None
+                try:
+                    chart_text = chart_response.content[0].text.strip()
+
+                    if not chart_text:
+                        print("[ws-chat] Empty chart response — skipping chart")
+                    else :
+                        # Strip markdown code fences with regex — handles ```json, ```, and newlines
+                        clean = re.sub(r'^```(?:json)?\s*', '', chart_text.strip())
+                        clean = re.sub(r'\s*```$', '', clean)
+                        clean = clean.strip()
+
+                        chart_data = json.loads(clean)
+
+                        # Normalize x/y key variations
+                        chart_data['x_key'] = (
+                            chart_data.get('x_key') or chart_data.get('x_axis') or
+                            chart_data.get('xKey') or chart_data.get('x')
+                        )
+                        chart_data['y_key'] = (
+                            chart_data.get('y_key') or chart_data.get('y_axis') or
+                            chart_data.get('yKey') or chart_data.get('y')
+                        )
+
+                        if chart_data.get('should_chart'):
+                            if chart_data.get('data') and chart_data.get('x_key') and chart_data.get('y_key'):
+                                first_row = chart_data['data'][0] if chart_data['data'] else {}
+                                if chart_data['y_key'] not in first_row:
+                                    numeric_keys = [k for k, v in first_row.items() if isinstance(v, (int, float))]
+                                    if numeric_keys:
+                                        chart_data['y_key'] = numeric_keys[0]
+                                chart = chart_data
+                except json.JSONDecodeError as e:
+                    print(f"[ws-chat] JSON decode error: {e}")
+                except Exception as e:
+                    print(f"[ws-chat] Chart error: {e}")
+
+                has_chart = chart is not None and chart.get('should_chart', False)
+
+                await websocket.send_json({"type": "answer_start"})
+
+                full_answer = ""
+                with anthropic_client.messages.stream(
+                    model="claude-sonnet-4-6",
+                    max_tokens=500,
+                    system=f"""You are a helpful assistant for a football data pipeline application called ScoreStream. 
+                    Given a natural language question and the SQL query results, provide a clear and concise, natural language answer to the user.
+
+                    Rules:
+                    - If status is 'STATUS_ABANDONED', note that the game was abandoned and goals shown are from before the abandonment
+                    - Always use the 'scored_for' field to say which team a player scored for — never guess from the player name
+                    - Format the final score on its own line as: Home Team 2 - 1 Away Team
+                    - List each goal scorer on its own line in this format:
+                    ⚽ Player Name (Team Name) 23' — Goal Type
+                    🎯 Player Name (Team Name) 45' — Penalty
+                    🔴 Player Name (Team Name) 67' — Own Goal
+                    - Put a blank line between the score and the scorer list
+                    - If own_goal is true use 🔴 and note it as an own goal
+                    - If penalty_goal is true use 🎯
+                    - Otherwise use ⚽
+                    - Keep any summary sentence brief — one line at most
+                    - If player_name is null for all rows, the game was a 0-0 draw — say so clearly
+                    - When asked about upcoming games or games right now, if the data shows no games, say something like 'There are no scheduled games for that period.' or 'There are no scheduled games today.', rather than "No data found."
+                    - When asked about goal difference always SELECT goal_diff not points
+                    - When asked about open play goals, that includes any goal where penalty_goal = false and goal_type does not contain 'Penalty' or 'Free-kick', there's no other type of goal in the data, so if the question is about open play goals SELECT all goals that are not penalties or free-kicks, or from other set pieces
+                    - When asked about form, points, or standings SELECT points
+                    - Never substitute goal_diff with points or vice versa
+                    - Always SELECT only the columns relevant to the question — 
+                    if asking about goal difference, include goal_diff and team_name, not points
+                    - For 'what happened' questions give a full match summary:
+                    first the score, then list each scorer, then a brief one-line summary
+                    - For World Cup results format as: Country A 2 - 1 Country B (AET) for extra time
+                    - For penalty shootouts note: 'decided on penalties' since penalty scores aren't stored
+                    - For group standings show the group name as a header
+                    - For qualification questions list which teams advanced and from which group
+                    - Use country names not abbreviations in responses
+                    - Never mention SQL or databases
+                    - If data is empty say so clearly
+                    """,
+                    messages=[{
+                        "role": "user",
+                        "content": f"""Question: {expanded_question}
+                        Data: {json.dumps(rows, default=str)}
+                        {"A chart is being displayed alongside this response - do NOT include a markdown table. Give a brief 2-3 sentence summary instead." if has_chart else ""}"""
+                    }]
+                ) as stream:
+                    for chunk in stream.text_stream:
+                        full_answer += chunk
+                        await websocket.send_json({"type": "answer_chunk", "chunk": chunk})
+
+                await websocket.send_json({"type": "done", "message": full_answer, "chart": chart, "sql": sql})
+            
+            except Exception as e:
+                print(f"[ws-chat] Error: {e}")
+                await websocket.send_json({"type": "done", "message": "Sorry, I couldn't process your question. Try rephrasing it or ask something else about football matches.", "chart": None})
+            finally:
+                release_db(conn)
+
+    except WebSocketDisconnect:
+        print("[ws-chat] Client disconnected")

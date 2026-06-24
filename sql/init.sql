@@ -8,16 +8,18 @@ CREATE TABLE IF NOT EXISTS games (
     home_team       VARCHAR NOT NULL,
     home_team_name  VARCHAR NOT NULL,
     home_id         VARCHAR NOT NULL,
+    home_logo       VARCHAR,
     away_team       VARCHAR NOT NULL,
     away_team_name  VARCHAR NOT NULL,
     away_id         VARCHAR NOT NULL,
+    away_logo       VARCHAR,
     home_score      INT DEFAULT 0,
     away_score      INT DEFAULT 0,
     period          VARCHAR,
     clock           VARCHAR,
-    status          VARCHAR NOT NULL,  -- STATUS_SCHEDULED, STATUS_IN_PROGRESS, STATUS_FINAL
+    status          VARCHAR NOT NULL,  -- STATUS_SCHEDULED, STATUS_IN_PROGRESS, STATUS_FINAL, etc.
     status_detail   VARCHAR,
-    start_time      TIMESTAMP,
+    start_time      TIMESTAMP WITH TIME ZONE,
     matchday        INTEGER,
     last_updated    TIMESTAMP DEFAULT NOW()
 );
@@ -31,16 +33,20 @@ CREATE TABLE IF NOT EXISTS goals (
     player_name     VARCHAR NOT NULL,
     team_id         VARCHAR NOT NULL,
     minute          VARCHAR,
-    seconds         INT,
-    goal_type       VARCHAR,  -- e.g., "Volley", "Penalty", "Own Goal"
+    seconds         FLOAT,
+    goal_type       VARCHAR,  -- e.g., "Goal", "Goal - Header", "Penalty - Scored"
     own_goal        BOOLEAN DEFAULT FALSE,
     penalty_goal    BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMP DEFAULT NOW(),
 
-    UNIQUE(game_id, player_id, seconds)
+    -- Unique on (game_id, team_id, seconds) rather than player_id —
+    -- ESPN sometimes reassigns which player scored at a fixed moment
+    -- (e.g. correcting an own-goal credit), and the team+timing is the
+    -- stable identity of the event, not the player attribution.
+    UNIQUE(game_id, team_id, seconds)
 );
 
--- ── Season Stats ───────────────────────────────────────────────────────
+-- ── Season Stats ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS season_stats (
     player_id     VARCHAR,
     player_name   VARCHAR,
@@ -59,7 +65,9 @@ CREATE TABLE IF NOT EXISTS season_stats (
 CREATE TABLE IF NOT EXISTS standings (
     team_id         VARCHAR NOT NULL,
     league          VARCHAR NOT NULL DEFAULT 'epl',
+    season          INTEGER DEFAULT 2026,
     team_name       VARCHAR NOT NULL,
+    group_name      VARCHAR,        -- World Cup group stage (e.g. 'Group A'); NULL for club leagues
     wins            INT DEFAULT 0,
     losses          INT DEFAULT 0,
     draws           INT DEFAULT 0,
@@ -70,13 +78,15 @@ CREATE TABLE IF NOT EXISTS standings (
     matches_played  INT DEFAULT 0,
     rank            INT DEFAULT 0,
     deductions      INT DEFAULT 0,
+    note            VARCHAR,        -- e.g. "Advance to Round of 32" (World Cup qualification status)
+    note_color      VARCHAR,        -- hex color associated with the note, from ESPN
+    logo_url        VARCHAR,        -- direct ESPN CDN logo URL for the team
     last_updated    TIMESTAMP DEFAULT NOW(),
 
-    PRIMARY KEY (team_id, league)
+    PRIMARY KEY (team_id, league, season)
 );
 
 -- ── Metadata ────────────────────────────────────────────────────────
-
 CREATE TABLE IF NOT EXISTS pipeline_metadata (
     key             VARCHAR PRIMARY KEY,
     value           TEXT,
@@ -84,10 +94,13 @@ CREATE TABLE IF NOT EXISTS pipeline_metadata (
 );
 
 -- ── Indexes ─────────────────────────────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_goals_game ON goals(game_id);
-CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
-CREATE INDEX IF NOT EXISTS idx_games_league ON games(league);
-CREATE INDEX IF NOT EXISTS idx_goals_league ON goals(league);
+CREATE INDEX IF NOT EXISTS idx_goals_game        ON goals(game_id);
+CREATE INDEX IF NOT EXISTS idx_goals_league      ON goals(league);
+CREATE INDEX IF NOT EXISTS idx_goals_seconds     ON goals(game_id, seconds ASC);
+CREATE INDEX IF NOT EXISTS idx_games_status      ON games(status);
+CREATE INDEX IF NOT EXISTS idx_games_league      ON games(league);
+CREATE INDEX IF NOT EXISTS idx_games_last_update ON games(last_updated DESC);
+CREATE INDEX IF NOT EXISTS idx_standings_league  ON standings(league, season);
 
 -- ── Seed message ────────────────────────────────────────────────────
 DO $$

@@ -5,6 +5,7 @@ import PipelineTab from './components/PipelineTab'
 import MatchesTab from './components/MatchesTab'
 import ChatTab from './components/ChatTab'
 import { useWebSocket } from './hooks/useWebSocket'
+import { useChatWebSocket } from './hooks/useChatWebSocket'
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000'
 
@@ -100,8 +101,9 @@ export default function App() {
 	const [apiStatus, setApiStatus] = useState('checking...')
 	const [selectedGameId, setSelectedGameId] = useState(null)
 	const [lastUpdate, setLastUpdate] = useState(null)
-	const [selectedLeague, setSelectedLeague] = useState('epl')
+	const [selectedLeague, setSelectedLeague] = useState('worldcup')
 	const availableLeagues = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1', 'worldcup']
+	const { isConnected: chatConnected, sendQuestion} = useChatWebSocket()
 
 	const handleWebSocketMessage = useCallback((message) => {
 		setLastUpdate(message)
@@ -259,7 +261,7 @@ export default function App() {
 			{activeTab === 'match' && (
 				<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} theme={theme} league={selectedLeague} />
 			)}
-			{activeTab === 'chat' && <ChatTab theme={theme} />}
+			{activeTab === 'chat' && <ChatTab theme={theme} isConnected={chatConnected} sendQuestion={sendQuestion} />}
 			{activeTab === 'pipeline' && <PipelineTab active={activeTab === 'pipeline'} />}
 			</main>
 

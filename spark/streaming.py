@@ -199,13 +199,13 @@ def process_goals(df_batch, batch_id):
 
         for row in rows:
             game_id = row.game_id
-            current_seconds = [g.seconds for g in row.goals if g.seconds is not None]
+            current_keys = [(g.team_id, g.seconds) for g in row.goals if g.seconds is not None]
 
-            if current_seconds:
+            if current_keys:
                 cursor.execute("""
                     DELETE FROM goals
-                    WHERE game_id = %s AND seconds NOT IN %s
-                """, ( game_id, tuple(current_seconds) ))
+                    WHERE game_id = %s AND (team_id, seconds) NOT IN %s
+                """, ( game_id, tuple(current_keys) ))
             else:
                 cursor.execute("""
                     DELETE FROM goals
@@ -216,11 +216,14 @@ def process_goals(df_batch, batch_id):
                 cursor.execute("""
                     INSERT INTO goals (game_id, league, player_id, player_name, team_id, minute, seconds, goal_type, own_goal, penalty_goal)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (game_id, player_id, seconds) DO UPDATE SET
-                        goal_type = EXCLUDED.goal_type,
-                        minute = EXCLUDED.minute,
-                        league = EXCLUDED.league,
-                        player_name = EXCLUDED.player_name
+                    ON CONFLICT (game_id, team_id, seconds) DO UPDATE SET
+                        player_id    = EXCLUDED.player_id,
+                        player_name  = EXCLUDED.player_name,
+                        goal_type    = EXCLUDED.goal_type,
+                        minute       = EXCLUDED.minute,
+                        own_goal     = EXCLUDED.own_goal,
+                        penalty_goal = EXCLUDED.penalty_goal,
+                        league       = EXCLUDED.league
                 """, (
                     row.game_id,
                     goal.league,

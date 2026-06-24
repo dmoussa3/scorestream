@@ -131,7 +131,7 @@ def parse_game(game: dict, league: str) -> dict | None:
                 "seconds": int(detail["clock"]["value"]),
                 "goal_type": detail["type"]["text"],
                 "own_goal": detail.get("ownGoal", False),
-                "penalty": detail.get("penaltyKick", False),
+                "penalty_goal": detail.get("penaltyKick", False),
                 "league": league,
             })
 
