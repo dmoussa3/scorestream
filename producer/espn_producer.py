@@ -35,6 +35,15 @@ LEAGUES = {
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:password@postgres:5432/scorestream")
 
+ROUNDS = {
+    "round of 32": "Round of 32",
+    "round of 16": "Round of 16",
+    "quarterfinals": "Quarterfinals",
+    "semifinals": "Semifinals",
+    "third place": "Third Place",
+    "final": "Final"
+}
+
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
@@ -64,7 +73,7 @@ def fetch_scoreboard(league: str) -> list[dict]:
     """Return list of raw game objects from ESPN scoreboard."""
     events = []
 
-    for day_offset in [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4]:  # fetch yesterday's and tomorrow's games to catch late updates
+    for day_offset in [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7]:  # fetch yesterday's and tomorrow's games to catch late updates
         date_str = (datetime.now() + timedelta(days=day_offset)).strftime("%Y%m%d")
         url = f"{ESPN_BASE}/{league}/scoreboard?dates={date_str}"
 
@@ -104,6 +113,21 @@ def fetch_standings(league: str) -> list[dict]:
         print(f"[producer] Standings fetch error: {e}")
         return []
 
+def parse_round(event: dict, comp: dict) -> str | None:
+    """Extract a clean round name from a raw ESPN event object."""
+    note = comp.get("altGameNote", "") or ""  # Fallback to empty string if not present
+
+    if not note:
+        notes = comp.get("notes", [])
+        note = notes[0].get("headline", "") if notes else ""
+
+    note_lower = note.lower()
+    for key, value in ROUNDS.items():
+        if key in note_lower:
+            if key == "final" and ("quarterfinal" in note_lower or "semifinal" in note_lower):
+                continue  # Avoid mislabeling quarterfinals/semifinals as finals
+            return value
+    return None
 
 def parse_game(game: dict, league: str) -> dict | None:
     """Extract a clean game event from a raw ESPN event object."""
@@ -168,6 +192,7 @@ def parse_game(game: dict, league: str) -> dict | None:
             "away_score": int(away.get("score", 0) or 0),
             "shootout_home": shootout_home,
             "shootout_away": shooutout_away,
+            "round": parse_round(game, competition) if league == "worldcup" else None,
             "period":    status.get("period", 0),
             "clock":     status.get("displayClock", ""),
             "home_logo": home_logos[0]["href"] if home_logos else None,

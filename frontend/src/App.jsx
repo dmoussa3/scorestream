@@ -4,6 +4,7 @@ import StandingsTab from './components/StandingsTab'
 import PipelineTab from './components/PipelineTab'
 import MatchesTab from './components/MatchesTab'
 import ChatTab from './components/ChatTab'
+import BracketTab from './components/BracketTab'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useChatWebSocket } from './hooks/useChatWebSocket'
 
@@ -123,8 +124,6 @@ export default function App() {
 		.catch(() => setApiStatus('unreachable'))
 	}, [])
 
-	const tabs = ['scores', 'standings', 'match', 'chat', 'pipeline']
-
 	const theme = LEAGUE_THEMES[selectedLeague] || LEAGUE_THEMES.epl
 
 	useEffect(() => {
@@ -173,21 +172,68 @@ export default function App() {
 					<div className="flex flex-col items-center gap-3 py-1">
 
 						<div className='flex gap-1'>
-							{tabs.map(tab => (
 							<button
-								key={tab}
-								onClick={() => setActiveTab(tab)}
+								onClick={() => setActiveTab('scores')}
 								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-								activeTab === tab
+								activeTab === 'scores'
 									? 'border-[#00ff85] text-[#00ff85]'
 									: 'border-transparent text-purple-300 hover:text-white'
 								}`}
 							>
-								{tab === 'match' ? 'Match Detail' :
-								tab === 'chat' ? 'Ask ScoreStream AI' :
-								tab === 'pipeline' ? 'Pipeline Health' : tab}
+								Scores
 							</button>
-							))}
+							<button
+								onClick={() => setActiveTab('standings')}
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
+								activeTab === 'standings'
+									? 'border-[#00ff85] text-[#00ff85]'
+									: 'border-transparent text-purple-300 hover:text-white'
+								}`}
+							>
+								Standings
+							</button>
+							{selectedLeague === 'worldcup' && (
+								<button
+									onClick={() => setActiveTab('bracket')}
+									className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
+									activeTab === 'bracket'
+										? 'border-[#00ff85] text-[#00ff85]'
+										: 'border-transparent text-purple-300 hover:text-white'
+									}`}
+								>
+									Bracket
+								</button>
+							)}
+							<button
+								onClick={() => setActiveTab('match')}
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
+								activeTab === 'match'
+									? 'border-[#00ff85] text-[#00ff85]'
+									: 'border-transparent text-purple-300 hover:text-white'
+								}`}
+							>
+								Match Details
+							</button>
+							<button
+								onClick={() => setActiveTab('chat')}
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
+								activeTab === 'chat'
+									? 'border-[#00ff85] text-[#00ff85]'
+									: 'border-transparent text-purple-300 hover:text-white'
+								}`}
+							>
+								ScoreStream AI
+							</button>
+							<button
+								onClick={() => setActiveTab('pipeline')}
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
+								activeTab === 'pipeline'
+									? 'border-[#00ff85] text-[#00ff85]'
+									: 'border-transparent text-purple-300 hover:text-white'
+								}`}
+							>
+								Pipeline Health
+							</button>
 						</div>
 
 						{/* League selector - only show on scores and standings tab */}
@@ -258,6 +304,12 @@ export default function App() {
 				<ScoresTab onSelectGame={handleSelectedGame} lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />
 			)}
 			{activeTab === 'standings' && <StandingsTab lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />}
+			{activeTab === 'bracket' && selectedLeague === 'worldcup' && (
+				<BracketTab theme={theme} onSelectGame={(gameId) => {
+					setSelectedGameId(gameId)
+					setActiveTab('match')
+				}} />
+			)}
 			{activeTab === 'match' && (
 				<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} theme={theme} league={selectedLeague} />
 			)}

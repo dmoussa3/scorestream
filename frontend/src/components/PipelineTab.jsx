@@ -56,8 +56,8 @@ function StatusCard({ title, status, metrics }) {
 export default function PipelineTab({active}) {
     const { data, loading, error } = usePoll('/health/pipeline', 60000, active)
 
-    if (loading) return <div className="text-[#37003c] p-4">Loading pipeline status...</div>
-    if (error)   return <div className="text-[#37003c] p-4">Error loading pipeline health: {error}</div>
+    if (loading) return <div className="text-white p-4">Loading pipeline status...</div>
+    if (error)   return <div className="text-red-500 p-4">Error loading pipeline health: {error}</div>
     if (!data)   return null
 
     const { postgres, kafka, airflow, producer } = data
@@ -77,7 +77,7 @@ export default function PipelineTab({active}) {
 
             {/* Producer */}
             <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#37003c] mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
                     Ingestion
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -95,7 +95,7 @@ export default function PipelineTab({active}) {
 
             {/* Kafka */}
             <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#37003c] mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
                     Message Broker — Kafka
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -116,7 +116,7 @@ export default function PipelineTab({active}) {
 
             {/* PostgreSQL tables */}
             <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#37003c] mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
                     Storage — PostgreSQL
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -136,7 +136,7 @@ export default function PipelineTab({active}) {
 
             {/* Airflow DAGs */}
             <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#37003c] mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
                     Orchestration — Airflow
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

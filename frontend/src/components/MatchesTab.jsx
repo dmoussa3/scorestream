@@ -83,7 +83,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
         ['STATUS_FIRST_EXTRA', 'STATUS_SECOND_EXTRA', 'STATUS_PENALTIES'].includes(game.status) ||
         FINAL_STATUSES.includes(game.status) && goalsArray.some(g => g.seconds > 5400)
 
-    const MATCH_DURATION = extraTime ? 7800 : 5400
+    const MATCH_DURATION = extraTime ? 7500 : 5400
     const HALFTIME_DURATION = 2700
     const FULLTIME_DURATION = 5400
     const ET_HALF = 6300
@@ -298,8 +298,8 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                                             105'
                                         </span>
 
-                                        {/* 120' at far right */}
-                                        <span className="absolute right-0">120'</span>
+                                        {/* AET at far right */}
+                                        <span className="absolute right-0">AET</span>
                                     </>
                                 )}
 

@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS games (
     away_logo       VARCHAR,
     home_score      INT DEFAULT 0,
     away_score      INT DEFAULT 0,
+    shootout_home   INT DEFAULT 0,
+    shootout_away   INT DEFAULT 0,
+    round           VARCHAR,
     period          VARCHAR,
     clock           VARCHAR,
     status          VARCHAR NOT NULL,  -- STATUS_SCHEDULED, STATUS_IN_PROGRESS, STATUS_FINAL, etc.
