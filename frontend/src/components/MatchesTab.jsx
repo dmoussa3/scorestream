@@ -2,14 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePoll } from "../hooks/usePoll";
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
-const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL']
-
-const MATCH_DURATION = 5400; // 90 minutes in seconds
-
-const getTimelinePosition = (currentSeconds) => {
-  const percentage = (currentSeconds / MATCH_DURATION) * 100;
-  return Math.min(percentage, 99);
-}
+const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL_PEN', 'STATUS_FINAL_AET']
 
 const parseClock = (clockStr, period, status) => {
     if (status === 'STATUS_HALFTIME') return 2700;
@@ -18,24 +11,6 @@ const parseClock = (clockStr, period, status) => {
     const base = parseInt(parts[0]) || 0
     const extra = parseInt(parts[1]) || 0
     return (base + extra) * 60
-}
-
-const getPercentage = (game, seconds) => {
-    if (!game) return null
-    if (!LIVE_STATUSES.includes(game.status)) return null
-    if (game.status === 'STATUS_HALFTIME' || ((seconds >= 2700) && game.status === 'STATUS_FIRST_HALF')) return (2700 / MATCH_DURATION) * 100
-
-    const elapsed = parseClock(game.clock, game.period, game.status)
-
-    const total = game.period === 2 ? 2700 + elapsed : elapsed
-    return Math.min((total / MATCH_DURATION) * 99)
-}
-
-const secondsDisplay = (seconds) => {
-    const mins = Math.floor(seconds / 60)
-    if (mins > 90) return `90'+${mins - 90}'`
-    if (mins >= 45 && seconds < 2700) return `45'+${mins - 45}'`
-    return `${mins}'`
 }
 
 const GOAL_ICON = {
@@ -102,6 +77,40 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
     if (loading) return <div className="p-4" style={{ color: theme?.accent }}>Loading standings...</div>
     if (error)   return <div className="p-4 text-red-400">Error: {error}</div>
     if (!game) return <div className="text-red-400 p-4">Game not found.</div>;
+
+    const extraTime = 
+        game.period >= 3 ||
+        ['STATUS_FIRST_EXTRA', 'STATUS_SECOND_EXTRA', 'STATUS_PENALTIES'].includes(game.status) ||
+        FINAL_STATUSES.includes(game.status) && goalsArray.some(g => g.seconds > 5400)
+
+    const MATCH_DURATION = extraTime ? 7800 : 5400
+    const HALFTIME_DURATION = 2700
+    const FULLTIME_DURATION = 5400
+    const ET_HALF = 6300
+    const ET_END = 7200
+
+    const getTimelinePosition = (currentSeconds) => {
+        const percentage = (currentSeconds / MATCH_DURATION) * 100;
+        return Math.min(percentage, 99);
+    }
+
+    const getPercentage = (game, seconds) => {
+        if (!game) return null
+        if (!LIVE_STATUSES.includes(game.status)) return null
+        if (game.status === 'STATUS_HALFTIME' || ((seconds >= 2700) && game.status === 'STATUS_FIRST_HALF')) return (2700 / MATCH_DURATION) * 100
+
+        const elapsed = parseClock(game.clock, game.period, game.status)
+
+        const total = game.period === 2 ? 2700 + elapsed : elapsed
+        return Math.min((total / MATCH_DURATION) * 99)
+    }
+
+    const secondsDisplay = (seconds) => {
+        const mins = Math.floor(seconds / 60)
+        if (mins > 90) return `90'+${mins - 90}'`
+        if (mins >= 45 && seconds < 2700) return `45'+${mins - 45}'`
+        return `${mins}'`
+    }
 
     const progressPercent = getPercentage(game, elapsedSeconds)
     const isLive = game && LIVE_STATUSES.includes(game.status)
@@ -208,7 +217,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                     {/* Score */}
                     <div className="text-center">
                         <div className="text-5xl font-bold text-white tracking-tight">
-                            {game.home_score} – {game.away_score}
+                            {game.shootout_home ? `(${game.shootout_home})` : ``} {game.home_score} – {game.away_score} {game.shootout_away ? `(${game.shootout_away})` : ``}
                         </div>
                     </div>
 
@@ -268,13 +277,39 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                                 <span className="absolute left-0">0'</span>
                                 <span 
                                     className="absolute -translate-x-1/2"
-                                    style={{ left: `${(2700/ MATCH_DURATION) * 100}%`}}
+                                    style={{ left: `${(HALFTIME_DURATION / MATCH_DURATION) * 100}%`}}
                                  > HT 
                                  </span>
-                                <span className="absolute right-0">FT</span>
+                                {extraTime && (
+                                    <>
+                                        {/* 90' marker — where regular time ended */}
+                                        <span
+                                            className="absolute -translate-x-1/2"
+                                            style={{ left: `${(FULLTIME_DURATION / MATCH_DURATION) * 100}%` }}
+                                        >
+                                            90'
+                                        </span>
+
+                                        {/* 105' marker — ET halftime */}
+                                        <span
+                                            className="absolute -translate-x-1/2"
+                                            style={{ left: `${(ET_HALF / MATCH_DURATION) * 100}%` }}
+                                        >
+                                            105'
+                                        </span>
+
+                                        {/* 120' at far right */}
+                                        <span className="absolute right-0">120'</span>
+                                    </>
+                                )}
+
+                                {!extraTime && (
+                                    <span className="absolute right-0">
+                                        FT
+                                    </span>
+                                )}
                             </div>
 
-                            
                             {/* Timeline bar */}
                             <div 
                                 className="h-2 rounded-full relative overflow-hidden"
@@ -299,8 +334,23 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
                                 {/* Halftime marker */}
                                 <div
                                     className="absolute top-0 bottom-0 w-1"
-                                    style={{ left: `${(2700 / MATCH_DURATION) * 100}%`, backgroundColor: league === 'seriea' ? `#ffffff` : theme.border }}
+                                    style={{ left: `${(HALFTIME_DURATION / MATCH_DURATION) * 100}%`, backgroundColor: league === 'seriea' ? `#ffffff` : theme.border }}
                                 />
+
+                                {/* Extra time marker */}
+                                {extraTime && (
+                                    <div
+                                        className="absolute top-0 bottom-0 w-1"
+                                        style={{ left: `${(FULLTIME_DURATION / MATCH_DURATION) * 100}%`, backgroundColor: league === 'seriea' ? `#ffffff` : theme.border }}
+                                    />
+                                )}
+
+                                {extraTime && (
+                                    <div
+                                        className="absolute top-0 bottom-0 w-1"
+                                        style={{ left: `${(ET_HALF / MATCH_DURATION) * 100}%`, backgroundColor: league === 'seriea' ? `#ffffff` : theme.border }}
+                                    />
+                                )}
 
                                 {/* Position inidicator */}
                                 {isLive && progressPercent !== null && (

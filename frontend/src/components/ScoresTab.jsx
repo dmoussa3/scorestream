@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, useRef } from 'react'
 import { useSubscriptions } from '../hooks/useSubscriptions'
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
-const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_POSTPONED', 'STATUS_CANCELLED', 'STATUS_ABANDONED']
+const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL_PEN', 'STATUS_FINAL_AET', 'STATUS_POSTPONED', 'STATUS_CANCELLED', 'STATUS_ABANDONED']
 const toUtcDate = (dateStr) => {
     if (!dateStr) return null
     // PostgreSQL returns '+00' but JavaScript needs '+00:00' or 'Z'
@@ -383,12 +383,12 @@ function GameCard({ game, onSelect, isSubscribed, onToggleSubscription, notifica
                 </div>
 
                 {/* Score */}
-                <div className="mx-4 flex items-center gap-2">
+                <div className="mx-4 flex items-center gap-3">
                     {isFinal || isLive ? (
                         <>
-                            <span className="text-3xl font-bold text-white">{game.home_score}</span>
+                            <span className="text-3xl font-bold text-white">{game.shootout_home ? `(${game.shootout_home})` : ``} {game.home_score}</span>
                             <span className="text-purple-600">–</span>
-                            <span className="text-3xl font-bold text-white">{game.away_score}</span>
+                            <span className="text-3xl font-bold text-white">{game.away_score} {game.shootout_away ? `(${game.shootout_away})` : ``} </span>
                         </>
                     ) : (
                         <span className="text-purple-300 text-lg">vs</span>

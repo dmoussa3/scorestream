@@ -48,7 +48,7 @@ export function useGameWatcher(games, notify, subscriptions) {
                 if (game.status !== prev.status) {
 
                     // Kickoff
-                    if (game.status === 'STATUS_IN_PROGRESS' && !LIVE_STATUSES.includes(prev.status)) {
+                    if (game.status === 'STATUS_FIRST_HALF' && !LIVE_STATUSES.includes(prev.status)) {
                         notify(
                             `🟢 Kickoff`,
                             `${game.home_team} vs ${game.away_team} has started`,

@@ -64,7 +64,7 @@ def fetch_scoreboard(league: str) -> list[dict]:
     """Return list of raw game objects from ESPN scoreboard."""
     events = []
 
-    for day_offset in [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4]:  # fetch yesterday's and tomorrow's games to catch late updates
+    for day_offset in [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4]:  # fetch yesterday's and tomorrow's games to catch late updates
         date_str = (datetime.now() + timedelta(days=day_offset)).strftime("%Y%m%d")
         url = f"{ESPN_BASE}/{league}/scoreboard?dates={date_str}"
 
@@ -116,6 +116,8 @@ def parse_game(game: dict, league: str) -> dict | None:
         status =  competition["status"]
         home_logos = home.get("team", {}).get("logos", [])
         away_logos = away.get("team", {}).get("logos", [])
+        shootout_home = home.get("shootoutScore", None)
+        shooutout_away = away.get("shootoutScore", None)
 
         goals = []
         for detail in competition.get("details", []):
@@ -164,6 +166,8 @@ def parse_game(game: dict, league: str) -> dict | None:
             "status_detail": status["type"].get("detail", ""),
             "home_score": int(home.get("score", 0) or 0),
             "away_score": int(away.get("score", 0) or 0),
+            "shootout_home": shootout_home,
+            "shootout_away": shooutout_away,
             "period":    status.get("period", 0),
             "clock":     status.get("displayClock", ""),
             "home_logo": home_logos[0]["href"] if home_logos else None,

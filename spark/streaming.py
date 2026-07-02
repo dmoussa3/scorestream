@@ -84,6 +84,8 @@ games_schema = StructType() \
     .add("status_detail", StringType()) \
     .add("home_score", IntegerType()) \
     .add("away_score", IntegerType()) \
+    .add("shootout_home", IntegerType()) \
+    .add("shootout_away", IntegerType()) \
     .add("period", IntegerType()) \
     .add("clock", StringType()) \
     .add("goals", goal_schema) \
@@ -130,12 +132,14 @@ def process_games(df_batch, batch_id):
         rows = df_batch.collect()
         for row in rows:
             cursor.execute("""
-                INSERT INTO games (game_id, league, home_team, home_team_name, home_id, away_team, away_team_name, away_id, home_score, away_score, period, clock, status, status_detail, start_time, last_updated)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                INSERT INTO games (game_id, league, home_team, home_team_name, home_id, away_team, away_team_name, away_id, home_score, away_score, shootout_home, shootout_away, period, clock, status, status_detail, start_time, last_updated)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (game_id) DO UPDATE SET
                     league = EXCLUDED.league,
                     home_score = EXCLUDED.home_score,
                     away_score = EXCLUDED.away_score,
+                    shootout_home = EXCLUDED.shootout_home,
+                    shootout_away = EXCLUDED.shootout_away,
                     status = EXCLUDED.status,
                     status_detail = EXCLUDED.status_detail,
                     period = EXCLUDED.period,
@@ -152,6 +156,8 @@ def process_games(df_batch, batch_id):
                 row.away_id,
                 row.home_score,
                 row.away_score,
+                row.shootout_home,
+                row.shootout_away,
                 row.period,
                 row.clock,
                 row.status,
