@@ -137,6 +137,12 @@ def process_games(df_batch, batch_id):
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (game_id) DO UPDATE SET
                     league = EXCLUDED.league,
+                    home_team = EXCLUDED.home_team,
+                    home_team_name = EXCLUDED.home_team_name,
+                    home_id = EXCLUDED.home_id,
+                    away_team = EXCLUDED.away_team,
+                    away_team_name = EXCLUDED.away_team_name,
+                    away_id = EXCLUDED.away_id,
                     home_score = EXCLUDED.home_score,
                     away_score = EXCLUDED.away_score,
                     shootout_home = EXCLUDED.shootout_home,

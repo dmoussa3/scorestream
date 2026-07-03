@@ -141,7 +141,7 @@ def parse_game(game: dict, league: str) -> dict | None:
         home_logos = home.get("team", {}).get("logos", [])
         away_logos = away.get("team", {}).get("logos", [])
         shootout_home = home.get("shootoutScore", None)
-        shooutout_away = away.get("shootoutScore", None)
+        shootout_away = away.get("shootoutScore", None)
 
         goals = []
         for detail in competition.get("details", []):
@@ -191,7 +191,7 @@ def parse_game(game: dict, league: str) -> dict | None:
             "home_score": int(home.get("score", 0) or 0),
             "away_score": int(away.get("score", 0) or 0),
             "shootout_home": shootout_home,
-            "shootout_away": shooutout_away,
+            "shootout_away": shootout_away,
             "round": parse_round(game, competition) if league == "worldcup" else None,
             "period":    status.get("period", 0),
             "clock":     status.get("displayClock", ""),

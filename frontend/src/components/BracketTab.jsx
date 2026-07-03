@@ -74,15 +74,6 @@ function BracketCard({ game, theme }) {
                 shootout={game.shootout_away}
                 won={awayWon}
             />
-            {!isFinished && (
-                <div className="px-3 py-1 text-center text-xs border-t" style={{ borderColor: theme.border, color: theme.accent, opacity: 0.7 }}>
-                    {toUtcDate(game.start_time)?.toLocaleDateString('en-US', {
-                        month: 'short', day: 'numeric',
-                        hour: 'numeric', minute: '2-digit',
-                        timeZone: 'America/New_York',
-                    })}
-                </div>
-            )}
         </div>
     )
 }
@@ -143,6 +134,12 @@ export default function BracketTab({ theme, onSelectGame }) {
         return null;
     }
 
+    const parsePlaceholder = (name) => {
+        if (!name) return null;
+        const match = name.match(/^Round of \d+\s+(\d+)\s+Winn/i)
+        return match ? parseInt(match[1], 10) : null;
+    }
+
     const reorderbyRound = (rounds) => {
         for (let i = ROUNDS.length - 1; i >= 1; i--) {
             const laterRound = byRound[ROUNDS[i]];
@@ -152,27 +149,39 @@ export default function BracketTab({ theme, onSelectGame }) {
             const ordered = []
             const used = new Set();
 
+            const numbered = [...earlierRound].sort((a,b) => {
+                const diff = toUtcDate(a.start_time) - toUtcDate(b.start_time);
+                return diff !== 0 ? diff : a.game_id.tolocaleCompare(b.game_id);
+            })
+
+            const findFeeder = (sideName, sideId) => {
+                const byWinner = earlierRound.find(g => {
+                    const w = getWinner(g);
+                    return w && w === sideName;
+                })
+
+                if (byWinner) return byWinner;
+
+                const slot = parsePlaceholder(sideName);
+                if (slot != null && slot >= 1 && slot <= numbered.length) {
+                    return numbered[slot - 1];
+                }
+                return null
+            }
+
             laterRound.forEach(nextGame => {
-                const feeders = earlierRound.filter(g => {
-                    const winner = getWinner(g);
-                    return winner && (winner === nextGame.home_team_name || winner === nextGame.away_team_name);
-                })
+                const homeFeeder = findFeeder(nextGame.home_team_name, nextGame.home_id);
+                const awayFeeder = findFeeder(nextGame.away_team_name, nextGame.away_id);
 
-                feeders.sort((a,b) => {
-                    const aWinner = getWinner(a) === nextGame.home_team_name ? 0 : 1;
-                    const bWinner = getWinner(b) === nextGame.home_team_name ? 0 : 1;
-                    return aWinner - bWinner;
-                })
-
-                feeders.forEach(f => {
-                    if (!used.has(f.game_id)) {
-                        ordered.push(f);
-                        used.add(f.game_id);
+                [homeFeeder, awayFeeder].forEach(feeder => {
+                    if (feeder && !used.has(feeder.game_id)) {
+                        ordered.push(feeder);
+                        used.add(feeder.game_id)
                     }
                 })
             })
 
-            earlierRound.forEach(g => {
+            numbered.forEach(g => {
                 if (!used.has(g.game_id)) ordered.push(g);
             })
             byRound[ROUNDS[i - 1]] = ordered;
@@ -181,6 +190,21 @@ export default function BracketTab({ theme, onSelectGame }) {
     }
 
     reorderbyRound(byRound);
+
+    const r32 = [...(byRound['Round of 32'] || [])].sort((a, b) => {
+        const diff = toUtcDate(a.start_time) - toUtcDate(b.start_time)
+        return diff !== 0 ? diff : a.game_id.localeCompare(b.game_id)
+    })
+    byRound['Round of 16']?.forEach(g => {
+        [g.home_team_name, g.away_team_name].forEach(name => {
+            const slot = parsePlaceholder(name)
+            if (slot != null) {
+                const feeder = r32[slot - 1]
+                console.log(`"${name}" → slot ${slot} →`,
+                    feeder ? `${feeder.home_team_name} vs ${feeder.away_team_name}` : 'OUT OF RANGE')
+            }
+        })
+    })
 
     return (
         <div className="w-full">

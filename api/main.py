@@ -862,10 +862,12 @@ def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STA
             conditions.append("league = %s")
             params.append(league)
 
-        if window:
-            conditions.append("start_time BETWEEN NOW() - (%s || ' days')::interval AND NOW() + (%s || ' days')::interval")
+        if window is not None:
+            conditions.append("""
+                (start_time AT TIME ZONE 'America/New_York') BETWEEN (DATE_TRUNC('day', NOW() AT TIME ZONE 'America/New_York') - (%s || ' days')::interval) AND (DATE_TRUNC('day', NOW() AT TIME ZONE 'America/New_York') + (%s || ' days')::interval)
+            """)
             params.append(window)
-            params.append(window)     
+            params.append(window + 1)   
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
