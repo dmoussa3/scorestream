@@ -148,6 +148,12 @@ def parse_game(game: dict, league: str) -> dict | None:
             if not detail.get("scoringPlay", False):
                 continue
 
+            clock_value = int(detail.get("clock", {}).get("value", 0))
+            if detail.get("shootout") or (
+                clock_value >= 7200 and status["type"]["name"] in ("STATUS_FINAL_PEN", "STATUS_PENALTIES")
+            ):
+                continue
+
             athletes = detail.get("athletesInvolved", [{}])[0]
             goals.append({
                 "player_id": athletes.get("id"),

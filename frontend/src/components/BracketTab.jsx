@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
-const ROUNDS = ['Round of 32', 'Round of 16', 'Quarterfinals', 'Semifinals', 'Finals'];
+const ROUNDS = ['Round of 32', 'Round of 16', 'Quarterfinals', 'Semifinals', 'Final'];
 
 const toUtcDate = (dateStr) => {
     if (!dateStr) return null
@@ -141,6 +141,8 @@ export default function BracketTab({ theme, onSelectGame }) {
     }
 
     const reorderbyRound = (rounds) => {
+        let conn = []
+
         for (let i = ROUNDS.length - 1; i >= 1; i--) {
             const laterRound = byRound[ROUNDS[i]];
             const earlierRound = byRound[ROUNDS[i - 1]];
@@ -151,7 +153,7 @@ export default function BracketTab({ theme, onSelectGame }) {
 
             const numbered = [...earlierRound].sort((a,b) => {
                 const diff = toUtcDate(a.start_time) - toUtcDate(b.start_time);
-                return diff !== 0 ? diff : a.game_id.tolocaleCompare(b.game_id);
+                return diff !== 0 ? diff : a.game_id.localeCompare(b.game_id);
             })
 
             const findFeeder = (sideName, sideId) => {
@@ -169,16 +171,28 @@ export default function BracketTab({ theme, onSelectGame }) {
                 return null
             }
 
-            laterRound.forEach(nextGame => {
+            laterRound.forEach((nextGame, nextId) => {
                 const homeFeeder = findFeeder(nextGame.home_team_name, nextGame.home_id);
                 const awayFeeder = findFeeder(nextGame.away_team_name, nextGame.away_id);
 
+                const indicies = [];
+
                 [homeFeeder, awayFeeder].forEach(feeder => {
                     if (feeder && !used.has(feeder.game_id)) {
+                        indicies.push(ordered.length);
                         ordered.push(feeder);
                         used.add(feeder.game_id)
                     }
                 })
+
+                if (indicies.length === 2) {
+                    conn.push({
+                        roundIndex: i - 1,
+                        feederTop: indicies[0],
+                        feederBot: indicies[1],
+                        nextId
+                    })
+                }
             })
 
             numbered.forEach(g => {
@@ -186,57 +200,83 @@ export default function BracketTab({ theme, onSelectGame }) {
             })
             byRound[ROUNDS[i - 1]] = ordered;
         }
-        return byRound
+        return { conn, byRound };
     }
 
-    reorderbyRound(byRound);
+    const { conn, byRound: orderedRounds } = reorderbyRound(byRound);
 
     const r32 = [...(byRound['Round of 32'] || [])].sort((a, b) => {
         const diff = toUtcDate(a.start_time) - toUtcDate(b.start_time)
         return diff !== 0 ? diff : a.game_id.localeCompare(b.game_id)
     })
-    byRound['Round of 16']?.forEach(g => {
-        [g.home_team_name, g.away_team_name].forEach(name => {
-            const slot = parsePlaceholder(name)
-            if (slot != null) {
-                const feeder = r32[slot - 1]
-                console.log(`"${name}" → slot ${slot} →`,
-                    feeder ? `${feeder.home_team_name} vs ${feeder.away_team_name}` : 'OUT OF RANGE')
-            }
-        })
-    })
+
+    const WIDTH = 192
+    const GAP = 32
+    const HEADER = 28
+
+    const slotHeight = (roundIndex) => 96 * Math.pow(2, roundIndex)
 
     return (
         <div className="w-full">
 
             {/* Horizontally scrollable bracket columns */}
             <div className="overflow-x-auto pb-4">
-                <div className="flex gap-8 min-w-max px-2">
-                    {ROUNDS.map(round => (
-                        byRound[round]?.length > 0 && (
-                            <div key={round} className="flex flex-col">
-                                <h3
-                                    className="text-xs font-bold uppercase tracking-wider mb-3 text-center"
-                                    style={{ color: theme.accent }}
-                                >
-                                    {round}
-                                </h3>
-                                {/* justify-around spreads later-round games vertically 
-                                    so they align between their feeder games */}
-                                <div className="flex flex-col justify-around gap-3 flex-1">
-                                    {byRound[round].map(game => (
-                                        <div
-                                            key={game.game_id}
-                                            onClick={() => onSelectGame?.(game.game_id)}
-                                            className="cursor-pointer hover:opacity-80 transition-opacity"
-                                        >
-                                            <BracketCard game={game} theme={theme} />
-                                        </div>
-                                    ))}
+                <div className="relative min-w-max">
+                    <svg
+                        className="absolute top-0 left-0 pointer-events-none"
+                        style={{ width: '100%', height: '100%', overflow: 'visible' }}
+                    >
+                        {conn.map((c, i) =>{
+                            const x1 = c.roundIndex * (WIDTH + GAP) + WIDTH;
+                            const x2 = x1 + GAP / 2;
+                            const x3 = (c.roundIndex + 1) * (WIDTH + GAP);
+
+                            const yT = HEADER + (c.feederTop + 0.5) * slotHeight(c.roundIndex);
+                            const yB = HEADER + (c.feederBot + 0.5) * slotHeight(c.roundIndex);
+                            const yN = HEADER + (c.nextId + 0.5) * slotHeight(c.roundIndex + 1);
+
+                            return (
+                                <path
+                                    key={i}
+                                    d={`M ${x1} ${yT} H ${x2} V ${yB} M ${x1} ${yB} H ${x2} M ${x2} ${yN} H ${x3}`}
+                                    stroke={theme.border}
+                                    strokeWidth="2"
+                                    fill="none"
+                                />
+                            )
+                        })}
+                    </svg>
+
+                    <div className="flex gap-8">
+                        {ROUNDS.map((round, roundIndex) => (
+                            byRound[round]?.length > 0 && (
+                                <div key={round} className="flex flex-col">
+                                    <h3
+                                        className="text-xs font-bold uppercase tracking-wider mb-3 text-center"
+                                        style={{ color: theme.accent }}
+                                    >
+                                        {round}
+                                    </h3>
+                                    <div className="flex flex-col">
+                                        {byRound[round].map(game => (
+                                            <div
+                                                key={game.game_id}
+                                                className="flex items-center justify-center"
+                                                style={{ height: `${slotHeight(roundIndex)}px` }}
+                                            >
+                                                <div
+                                                    onClick={() => onSelectGame?.(game.game_id)}
+                                                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                                                >
+                                                    <BracketCard game={game} theme={theme} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        )
-                    ))}
+                            )
+                        ))}
+                    </div>
                 </div>
             </div>
 
