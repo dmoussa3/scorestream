@@ -195,7 +195,7 @@ export default function MatchesTab({ gameId, onBack, theme=DEFAULT_THEME, league
 
                 {/* Status */}
                 <div 
-                    className="text-center text-xs mb-4 uppercase tracking-wider"
+                    className="text-center text-sm mb-4 uppercase tracking-wider"
                     style={{ color: theme.accent }}
                 >
                     {game.status_detail}

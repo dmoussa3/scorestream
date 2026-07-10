@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 const LIVE_STATUSES = ['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF']
+const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL_AET', 'STATUS_FINAL_PEN']
 
 export function useGameWatcher(games, notify, subscriptions) {
     const prevGamesRef = useRef({})
@@ -48,7 +49,7 @@ export function useGameWatcher(games, notify, subscriptions) {
                 if (game.status !== prev.status) {
 
                     // Kickoff
-                    if (game.status === 'STATUS_FIRST_HALF' && !LIVE_STATUSES.includes(prev.status)) {
+                    if (game.status === 'STATUS_FIRST_HALF') {
                         notify(
                             `🟢 Kickoff`,
                             `${game.home_team} vs ${game.away_team} has started`,
@@ -71,7 +72,7 @@ export function useGameWatcher(games, notify, subscriptions) {
                     }
 
                     // Full-time
-                    if (game.status === 'STATUS_FULL_TIME' || game.status === 'STATUS_FINAL') {
+                    if (FINAL_STATUSES.includes(game.status)) {
                         notify(
                             `🔴 Full Time`,
                             `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team}`,
@@ -80,7 +81,7 @@ export function useGameWatcher(games, notify, subscriptions) {
                     }
 
                     // Second-half start
-                    if (game.status === 'STATUS_SECOND_HALF' && prev.status === 'STATUS_HALFTIME') {
+                    if (game.status === 'STATUS_SECOND_HALF') {
                         notify(
                             `🟢 Second Half`,
                             `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team} -- Second half started`,
