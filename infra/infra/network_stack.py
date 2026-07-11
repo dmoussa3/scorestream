@@ -3,6 +3,7 @@ from aws_cdk import (
     Stack,
     # aws_sqs as sqs,
     aws_ec2 as ec2,
+    aws_secretsmanager as secretsmanager,
 )
 from constructs import Construct
 
@@ -151,3 +152,20 @@ class NetworkStack(Stack):
             connection=ec2.Port.all_traffic(),
             description="Glue self-reference required for VPC job",
         )
+
+        self.secret_anthropic = secretsmanager.Secret(
+            self,
+            "AnthropicApiKey",
+            secret_name="scorestream/anthropic_api_key",
+            description="Anthropic API Key for LLM access",
+        )
+
+        self.secret_football_data = secretsmanager.Secret(
+            self,
+            "FootballDataApiKey",
+            secret_name="scorestream/football_data_api_key",
+            description="football-data.org API Key for historical football data backfill",
+        )
+
+        
+
