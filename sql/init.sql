@@ -15,10 +15,10 @@ CREATE TABLE IF NOT EXISTS games (
     away_logo       VARCHAR,
     home_score      INT DEFAULT 0,
     away_score      INT DEFAULT 0,
-    shootout_home   INT DEFAULT 0,
-    shootout_away   INT DEFAULT 0,
+    shootout_home   INT DEFAULT NULL,
+    shootout_away   INT DEFAULT NULL,
     round           VARCHAR,
-    period          VARCHAR,
+    period          INTEGER,
     clock           VARCHAR,
     status          VARCHAR NOT NULL,  -- STATUS_SCHEDULED, STATUS_IN_PROGRESS, STATUS_FINAL, etc.
     status_detail   VARCHAR,
@@ -100,8 +100,10 @@ CREATE TABLE IF NOT EXISTS pipeline_metadata (
 CREATE INDEX IF NOT EXISTS idx_goals_game        ON goals(game_id);
 CREATE INDEX IF NOT EXISTS idx_goals_league      ON goals(league);
 CREATE INDEX IF NOT EXISTS idx_goals_seconds     ON goals(game_id, seconds ASC);
+CREATE INDEX IF NOT EXISTS idx_goals_player      ON goals(player_id);
 CREATE INDEX IF NOT EXISTS idx_games_status      ON games(status);
 CREATE INDEX IF NOT EXISTS idx_games_league      ON games(league);
+CREATE INDEX IF NOT EXISTS idx_games_start_time  ON games(start_time);
 CREATE INDEX IF NOT EXISTS idx_games_last_update ON games(last_updated DESC);
 CREATE INDEX IF NOT EXISTS idx_standings_league  ON standings(league, season);
 

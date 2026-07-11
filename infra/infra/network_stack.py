@@ -167,5 +167,23 @@ class NetworkStack(Stack):
             description="football-data.org API Key for historical football data backfill",
         )
 
-        
+        # IAM Roles — defined alongside their services in compute_stack.py
 
+        # producer_task_role
+        # - secretsmanager:GetSecretValue on scorestream/anthropic-api-key
+        # - secretsmanager:GetSecretValue on scorestream/football-data-api-key
+        # - kafka:* on the MSK cluster ARN (scoped to the two topics)
+
+        # api_task_role
+        # - secretsmanager:GetSecretValue on scorestream/anthropic-api-key
+        # - secretsmanager:GetSecretValue on scorestream/rds-credentials
+
+        # glue_job_role
+        # - secretsmanager:GetSecretValue on scorestream/rds-credentials
+        # - kafka:* on the MSK cluster ARN (consumer group, read topics)
+        # - s3:GetObject, s3:PutObject on the checkpoints and archive buckets
+        # - ec2:* subset for Glue VPC connectivity (Glue requires specific EC2 permissions)
+        
+        def grant_secret_read(self, role):
+            self.secret_anthropic.grant_read(role)
+            self.secret_football_data.grant_read(role)
