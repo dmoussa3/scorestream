@@ -4,7 +4,8 @@ from aws_cdk import (
     aws_rds as rds,
     aws_elasticache as elasticache,
     RemovalPolicy,
-    Duration
+    Duration,
+    CfnOutput
 )
 from constructs import Construct
 from infra.network_stack import NetworkStack
@@ -80,7 +81,7 @@ class DataStack(Stack):
         self.rds_endpoint = self.rds_instance.db_instance_endpoint_address
         self.rds_port = self.rds_instance.db_instance_endpoint_port
 
-        def grant_secrets_read(self, role):
-            self.network.secret_anthropic.grant_read(role)
-            self.network.secret_football_data.grant_read(role)
-            self.secret_rds.grant_read(role)
+    def grant_secrets_read(self, role):
+        self.network.secret_anthropic.grant_read(role)
+        self.network.secret_football_data.grant_read(role)
+        self.secret_rds.grant_read(role)

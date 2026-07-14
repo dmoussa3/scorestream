@@ -87,6 +87,20 @@ class NetworkStack(Stack):
             allow_all_outbound=True,
         )
 
+        self.sg_bastion = ec2.SecurityGroup(
+            self,
+            "SgBastion",
+            vpc=self.vpc,
+            description="Bastion host security group",
+            allow_all_outbound=True,
+        )
+
+        self.sg_rds.add_ingress_rule(
+            peer=self.sg_bastion,
+            connection=ec2.Port.tcp(5432),
+            description="PostgreSQL port from Bastion host",
+        )
+
         self.sg_alb.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(443),

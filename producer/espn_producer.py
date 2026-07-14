@@ -6,12 +6,17 @@ Polls the ESPN public API every N seconds and publishes game events to Kafka.
 import json
 import os
 import time
+import signal
+import sys
 from datetime import datetime, timedelta, timezone
 import psycopg2
 
 import requests
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
+from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
+from kafka.admin import KafkaAdminClient, NewTopic
+from kafka.errors import TopicAlreadyExistsError
 
 # ── Config ──────────────────────────────────────────────────────────
 KAFKA_SERVERS      = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -33,7 +38,12 @@ LEAGUES = {
     "worldcup": "fifa.world"
 }
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:password@postgres:5432/scorestream")
+DATABASE_URL = (
+    f"postgresql://"
+    f"{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}"
+    f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT', '5432')}"
+    f"/{os.getenv('DB_NAME', 'scorestream')}"
+)
 
 ROUNDS = {
     "round of 32": "Round of 32",
@@ -44,28 +54,73 @@ ROUNDS = {
     "final": "Final"
 }
 
+class MSKTokenProvider:
+    """Token provider object satisfying kafka-python's OAUTHBEARER interface."""
+
+    def __init__(self, region: str):
+        self.region = region
+
+    def token(self):
+        token, expiry_ms = MSKAuthTokenProvider.generate_auth_token(self.region)
+        return token
+    
+    def token_expiry_ms(self):
+        _, expiry_ms = MSKAuthTokenProvider.generate_auth_token(self.region)
+        return expiry_ms
+
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
 # ── Kafka setup ─────────────────────────────────────────────────────
 def create_producer(retries: int = 10, delay: int = 5) -> KafkaProducer:
     """Retry connecting to Kafka until it's ready."""
+
+    token_provider = MSKTokenProvider(region="us-east-1")
+
     for attempt in range(1, retries + 1):
         try:
             producer = KafkaProducer(
-                bootstrap_servers=KAFKA_SERVERS,
+                bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "").split(","),
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                 key_serializer=lambda k: k.encode("utf-8") if k else None,
+                security_protocol="SASL_SSL",
+                sasl_mechanism="OAUTHBEARER",
+                sasl_oauth_token_provider=token_provider,
                 acks="all",               # wait for all replicas to confirm
                 retries=3,
             )
-            print(f"[producer] Connected to Kafka at {KAFKA_SERVERS}")
+            print(f"[producer] Connected to Kafka at {os.getenv('KAFKA_BOOTSTRAP_SERVERS', '')}")
             return producer
         except NoBrokersAvailable:
             print(f"[producer] Kafka not ready — attempt {attempt}/{retries}, retrying in {delay}s")
             time.sleep(delay)
     raise RuntimeError("Could not connect to Kafka after multiple attempts")
 
+def create_topics(servers: str, region: str = "us-east-1"):
+    """Create Kafka topics if they don't exist."""
+    token_provider = MSKTokenProvider(region=region)
+
+    admin_client = KafkaAdminClient(
+        bootstrap_servers=servers,
+        security_protocol="SASL_SSL",
+        sasl_mechanism="OAUTHBEARER",
+        sasl_oauth_token_provider=token_provider,
+    )
+
+    topics = [
+        NewTopic(name=TOPIC_SCORES, num_partitions=3, replication_factor=2),
+        NewTopic(name=TOPIC_STANDINGS, num_partitions=1, replication_factor=2),
+    ]
+
+    try:
+        admin_client.create_topics(new_topics=topics, validate_only=False)
+        print(f"[producer] Topics created: {[t.name for t in topics]}")
+    except TopicAlreadyExistsError:
+        print(f"[producer] Topics already exist: {[t.name for t in topics]}")
+    except Exception as e:
+        print(f"[producer] Topic creation error: {e}")
+    finally:
+        admin_client.close()
 
 # ── ESPN helpers ─────────────────────────────────────────────────────
 
@@ -169,7 +224,7 @@ def parse_game(game: dict, league: str) -> dict | None:
 
         cards = []
         for detail in competition.get("details", []):
-            if detail.get("scoreValue") != 0:
+            if detail.get("scoreValue", False):
                 continue
 
             athletes = detail.get("athletesInvolved", [{}])[0]
@@ -248,8 +303,24 @@ def parse_standing(entry: dict, league: str) -> dict | None:
 
 
 # ── Main loop ────────────────────────────────────────────────────────
-def run():
+def run():    
     producer = create_producer()
+
+    def handle_shutdown(signum, frame):
+        print(f"[producer] Received signal {signum}, shutting down...")
+        try:
+            producer.flush(timeout=10)
+            producer.close()
+        except Exception as e:
+            pass
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
+
+    print("[producer] Creating Kafka topics if they don't exist...")
+    create_topics(KAFKA_SERVERS)
+
     poll_count = 0
 
     conn = get_db()
