@@ -5,6 +5,7 @@ from aws_cdk import (
     aws_ecr as ecr,
     aws_logs as logs,
     aws_ec2 as ec2,
+    aws_glue as glue,
     Duration,
     RemovalPolicy,
     Fn
@@ -163,4 +164,114 @@ class ComputeStack(Stack):
                 ],
                 resources=["*"]
             )
+        )
+
+        glue_role = iam.Role(
+            self,
+            "GlueRole",
+            assumed_by=iam.ServicePrincipal("glue.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
+            ],
+            description="IAM role for ScoreStream Glue streaming jobs"
+        )
+
+        data.grant_secrets_read(glue_role)
+        data.grant_glue_bucket_access(glue_role)
+
+        glue_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "kafka-cluster:Connect",
+                    "kafka-cluster:DescribeCluster",
+                    "kafka-cluster:AlterCluster",
+                ],
+                resources=[msk.cluster.cluster_arn],
+            )
+        )
+
+        glue_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "kafka-cluster:ReadData",
+                    "kafka-cluster:WriteData",
+                    "kafka-cluster:DescribeTopic",
+                    "kafka-cluster:CreateTopic",
+                    "kafka-cluster:AlterTopic",
+                ],
+                resources=[f"arn:aws:kafka:us-east-1:{self.account}:topic/*"],
+            )
+        )
+
+        glue_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "kafka-cluster:AlterGroup",
+                    "kafka-cluster:DescribeGroup",
+                ],
+                resources=[f"arn:aws:kafka:us-east-1:{self.account}:group/*"],
+            )
+        )
+
+        glue_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DescribeSecurityGroups",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeVpcs",
+                ],
+                resources=["*"],
+            )
+        )
+
+        glue_connection = glue.CfnConnection(
+            self,
+            "GlueConnection",
+            catalog_id=self.account,
+            connection_input=glue.CfnConnection.ConnectionInputProperty(
+                name="scorestream-vpc-connection",
+                connection_type="NETWORK",
+                physical_connection_requirements=glue.CfnConnection.PhysicalConnectionRequirementsProperty(
+                    availability_zone=network.vpc.private_subnets[0].availability_zone,
+                    security_group_id_list=[network.sg_glue.security_group_id],
+                    subnet_id=network.vpc.private_subnets[0].subnet_id
+                )
+            )
+        )
+
+        glue_job = glue.CfnJob(
+            self, "ScoreStreamGlueJob",
+            name="scorestream-streaming",
+            role=glue_role.role_arn,
+            command=glue.CfnJob.JobCommandProperty(
+                name="gluestreaming",
+                python_version="3",
+                script_location=f"s3://scorestream-glue-{self.account}/scripts/streaming_job.py",
+            ),
+            glue_version="4.0",
+            worker_type="G.1X",
+            number_of_workers=2,
+            connections=glue.CfnJob.ConnectionsListProperty(
+                connections=["scorestream-vpc-connection"]
+            ),
+            default_arguments={
+                "--KAFKA_BOOTSTRAP_SERVERS": msk.bootstrap_brokers_iam,
+                "--CHECKPOINT_BUCKET":       f"scorestream-glue-{self.account}",
+                "--AWS_REGION":              "us-east-1",
+                "--REDIS_HOST":              data.redis_endpoint,
+                "--REDIS_PORT":              data.redis_port,
+                "--RDS_SECRET_NAME":         "scorestream/rds-credentials",  # ← add this
+                "--enable-continuous-cloudwatch-log": "true",
+                "--enable-metrics":          "true",
+                "--enable-spark-ui":         "true",
+                "--spark-event-logs-path":   f"s3://scorestream-glue-{self.account}/spark-logs/",
+                "--job-language":            "python",
+                "--additional-python-modules": "redis==5.0.1,psycopg2-binary==2.9.6",
+            },
+            execution_property=glue.CfnJob.ExecutionPropertyProperty(
+                max_concurrent_runs=1,
+            ),
         )

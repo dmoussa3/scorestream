@@ -143,6 +143,12 @@ class NetworkStack(Stack):
             description="Redis port from API ECS task",
         )
 
+        self.sg_redis.add_ingress_rule(
+            peer=self.sg_glue,
+            connection=ec2.Port.tcp(6379),
+            description="Redis port from Glue job",
+        )
+
         self.sg_msk.add_ingress_rule(
             peer=self.sg_producer,
             connection=ec2.Port.tcp(9098),
