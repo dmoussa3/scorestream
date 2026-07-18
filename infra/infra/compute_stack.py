@@ -6,6 +6,8 @@ from aws_cdk import (
     aws_logs as logs,
     aws_ec2 as ec2,
     aws_glue as glue,
+    aws_elasticloadbalancingv2 as elbv2,
+    aws_certificatemanager as acm,
     Duration,
     RemovalPolicy,
     Fn
@@ -132,7 +134,7 @@ class ComputeStack(Stack):
                 "DB_HOST": ecs.Secret.from_secrets_manager(data.secret_rds, field="host"),
                 "DB_PORT": ecs.Secret.from_secrets_manager(data.secret_rds, field="port"),
                 "DB_USER": ecs.Secret.from_secrets_manager(data.secret_rds, field="username"),
-                "DB_PASS": ecs.Secret.from_secrets_manager(data.secret_rds, field="password"),
+                "DB_PASSWORD": ecs.Secret.from_secrets_manager(data.secret_rds, field="password"),
                 "DB_NAME": ecs.Secret.from_secrets_manager(data.secret_rds, field="dbname"),
             },
             logging=ecs.LogDrivers.aws_logs(
@@ -274,4 +276,157 @@ class ComputeStack(Stack):
             execution_property=glue.CfnJob.ExecutionPropertyProperty(
                 max_concurrent_runs=1,
             ),
+        )
+
+        alb = elbv2.ApplicationLoadBalancer(
+            self,
+            "ScoreStreamALB",
+            vpc=network.vpc,
+            internet_facing=True,
+            security_group=network.sg_alb,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            load_balancer_name="scorestream-alb"
+        )
+
+        alb.set_attribute("idle_timeout.timeout_seconds", "4000")
+
+        self.alb_dns_name = alb.load_balancer_dns_name
+
+        api_task_role = iam.Role(
+            self,
+            "ApiTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+            description="IAM role for ScoreStream API ECS task",
+        )
+
+        data.grant_secrets_read(api_task_role)
+
+        api_task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "ssmmessages:CreateControlChannel",
+                    "ssmmessages:CreateDataChannel",
+                    "ssmmessages:OpenControlChannel",
+                    "ssmmessages:OpenDataChannel"
+                ],
+                resources=["*"]
+            )
+        )
+
+        api_execution_role = iam.Role(
+            self,
+            "ApiExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonECSTaskExecutionRolePolicy")
+            ]
+        )
+
+        data.grant_secrets_read(api_execution_role)
+
+        api_task = ecs.FargateTaskDefinition(
+            self,
+            "ApiTask",
+            task_role=api_task_role,
+            execution_role=api_execution_role,
+            cpu=512,
+            memory_limit_mib=1024
+        )
+
+        api_repo = ecr.Repository.from_repository_name(
+            self,
+            "ApiRepo",
+            repository_name="scorestream/api"
+        )
+
+        api_log_group = logs.LogGroup(
+            self,
+            "ApiLogs",
+            log_group_name="/scorestream/api",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=RemovalPolicy.DESTROY
+        )
+
+        api_task.add_container(
+            "ApiContainer",
+            image=ecs.ContainerImage.from_ecr_repository(api_repo, tag="v3"),
+            port_mappings=[ecs.PortMapping(container_port=8000, protocol=ecs.Protocol.TCP)],
+            environment={
+                "AWS_DEFAULT_REGION": "us-east-1",
+                "REDIS_HOST": data.redis_endpoint,
+                "REDIS_PORT": data.redis_port,
+                "ALLOWED_ORIGINS": "*"
+            },
+            secrets={
+                "DB_HOST": ecs.Secret.from_secrets_manager(data.secret_rds, field="host"),
+                "DB_PORT": ecs.Secret.from_secrets_manager(data.secret_rds, field="port"),
+                "DB_USER": ecs.Secret.from_secrets_manager(data.secret_rds, field="username"),
+                "DB_PASSWORD": ecs.Secret.from_secrets_manager(data.secret_rds, field="password"),
+                "DB_NAME": ecs.Secret.from_secrets_manager(data.secret_rds, field="dbname"),
+                "ANTHROPIC_API_KEY": ecs.Secret.from_secrets_manager(network.secret_anthropic),
+            },
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="api",
+                log_group=api_log_group
+            )
+        )
+
+        http_listener = alb.add_listener(
+            "HttpListener",
+            port=80,
+            default_action=elbv2.ListenerAction.fixed_response(
+                status_code=404,
+                content_type="text/plain",
+                message_body="Not found"
+            )
+        )
+
+        api_service = ecs.FargateService(
+            self,
+            "ApiService",
+            cluster=self.cluster,
+            task_definition=api_task,
+            desired_count=1,
+            service_name="scorestream-api",
+            assign_public_ip=False,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            security_groups=[network.sg_api],
+            enable_execute_command=True
+        )
+
+        api_target_group = http_listener.add_targets(
+            "ApiTargetGroup",
+            port=8000,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            targets=[api_service],
+            health_check=elbv2.HealthCheck(
+                path="/health",
+                interval=Duration.seconds(30),
+                timeout=Duration.seconds(10),
+                healthy_http_codes="200",
+                healthy_threshold_count=2,
+                unhealthy_threshold_count=3
+            ),
+            deregistration_delay=Duration.seconds(30)
+        )
+
+        api_execution_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret",
+                ],
+                resources=[
+                    data.secret_rds.secret_arn,
+                    network.secret_anthropic.secret_arn,
+                    network.secret_football_data.secret_arn,
+                ],
+            )
+        )
+
+        api_execution_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["kms:Decrypt"],
+                resources=["*"],
+            )
         )

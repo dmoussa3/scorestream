@@ -103,15 +103,15 @@ class NetworkStack(Stack):
 
         self.sg_alb.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(443),
-            description="HTTPS from internet",
+            connection=ec2.Port.tcp(80),
+            description="HTTP from internet",
         )
 
-        self.sg_alb.add_ingress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(80),
-            description="HTTP from internet for redirect",
-        )
+        # self.sg_alb.add_ingress_rule(
+        #     peer=ec2.Peer.any_ipv4(),
+        #     connection=ec2.Port.tcp(80),
+        #     description="HTTP from internet for redirect",
+        # )
 
         self.sg_api.add_ingress_rule(
             peer=self.sg_alb,

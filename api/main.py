@@ -603,10 +603,19 @@ _connection_pool = None
 def get_db_pool():
     global _connection_pool
     if _connection_pool is None:
+        dsn = os.getenv("DATABASE_URL")
+        if not dsn:
+            host     = os.getenv("DB_HOST", "localhost")
+            port     = os.getenv("DB_PORT", "5432")
+            user     = os.getenv("DB_USER", "admin")
+            password = os.getenv("DB_PASSWORD", "password")
+            dbname   = os.getenv("DB_NAME", "scorestream")
+            dsn = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+            
         _connection_pool = pool.SimpleConnectionPool(
             minconn=2,
             maxconn=20,
-            dsn=os.getenv("DATABASE_URL")
+            dsn=dsn
         )
     return _connection_pool
 

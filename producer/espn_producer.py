@@ -38,13 +38,6 @@ LEAGUES = {
     "worldcup": "fifa.world"
 }
 
-DATABASE_URL = (
-    f"postgresql://"
-    f"{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}"
-    f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT', '5432')}"
-    f"/{os.getenv('DB_NAME', 'scorestream')}"
-)
-
 ROUNDS = {
     "round of 32": "Round of 32",
     "round of 16": "Round of 16",
@@ -69,7 +62,15 @@ class MSKTokenProvider:
         return expiry_ms
 
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        host     = os.getenv("DB_HOST", "localhost")
+        port     = os.getenv("DB_PORT", "5432")
+        user     = os.getenv("DB_USER", "admin")
+        password = os.getenv("DB_PASSWORD", "password")
+        dbname   = os.getenv("DB_NAME", "scorestream")
+        url = f"postgresql://{user}:{password}@{host}:{port}/{dbname}?sslmode=require"
+    return psycopg2.connect(url)
 
 # ── Kafka setup ─────────────────────────────────────────────────────
 def create_producer(retries: int = 10, delay: int = 5) -> KafkaProducer:
