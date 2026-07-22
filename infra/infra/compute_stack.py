@@ -8,6 +8,8 @@ from aws_cdk import (
     aws_glue as glue,
     aws_elasticloadbalancingv2 as elbv2,
     aws_certificatemanager as acm,
+    aws_scheduler as scheduler,
+    aws_scheduler_targets as targets,
     Duration,
     RemovalPolicy,
     Fn
@@ -17,6 +19,7 @@ from constructs import Construct
 from infra.network_stack import NetworkStack
 from infra.data_stack import DataStack
 from infra.msk_stack import MskStack
+import json
 
 class ComputeStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, network: NetworkStack, data: DataStack, msk: MskStack, **kwargs) -> None:
@@ -355,7 +358,7 @@ class ComputeStack(Stack):
                 "AWS_DEFAULT_REGION": "us-east-1",
                 "REDIS_HOST": data.redis_endpoint,
                 "REDIS_PORT": data.redis_port,
-                "ALLOWED_ORIGINS": "*"
+                "ALLOWED_ORIGINS": "https://d2xnc8lcocasgt.cloudfront.net/"
             },
             secrets={
                 "DB_HOST": ecs.Secret.from_secrets_manager(data.secret_rds, field="host"),
@@ -429,4 +432,217 @@ class ComputeStack(Stack):
                 actions=["kms:Decrypt"],
                 resources=["*"],
             )
+        )
+
+        scheduler_task_role = iam.Role(
+            self,
+            "SchedulerTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+            description="IAM role for ScoreStream scheduler ECS task",
+        )
+
+        data.grant_secrets_read(scheduler_task_role)
+
+        scheduler_task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "ssmmessages:CreateControlChannel",
+                    "ssmmessages:CreateDataChannel",
+                    "ssmmessages:OpenControlChannel",
+                    "ssmmessages:OpenDataChannel"
+                ],
+                resources=["*"],
+            )
+        )
+
+        scheduler_execution_role = iam.Role(
+            self,
+            "SchedulerExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonECSTaskExecutionRolePolicy")
+            ] 
+        )
+
+        data.grant_secrets_read(scheduler_execution_role)
+
+        scheduler_repo = ecr.Repository.from_repository_name(
+            self,
+            "SchedulerRepo",
+            repository_name="scorestream/scheduler"
+        )
+
+        scheduler_log_group = logs.LogGroup(
+            self,
+            "SchedulerLogs",
+            log_group_name="/scorestream/scheduler",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=RemovalPolicy.DESTROY
+        )
+
+        scheduler_task = ecs.FargateTaskDefinition(
+            self,
+            "SchedulerTask",
+            task_role=scheduler_task_role,
+            execution_role=scheduler_execution_role,
+            cpu=256,
+            memory_limit_mib=512
+        )
+
+        scheduler_task.add_container(
+            "SchedulerContainer",
+            image=ecs.ContainerImage.from_ecr_repository(scheduler_repo, tag="latest"),
+            environment={
+                "AWS_DEFAULT_REGION": "us-east-1",
+                "ARCHIVE BUCKET": f"scorestream-glue-{self.account}",
+            },
+            secrets={
+                "DB_HOST": ecs.Secret.from_secrets_manager(data.secret_rds, field="host"),
+                "DB_PORT": ecs.Secret.from_secrets_manager(data.secret_rds, field="port"),
+                "DB_USER": ecs.Secret.from_secrets_manager(data.secret_rds, field="username"),
+                "DB_PASSWORD": ecs.Secret.from_secrets_manager(data.secret_rds, field="password"),
+                "DB_NAME": ecs.Secret.from_secrets_manager(data.secret_rds, field="dbname"),
+            },
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="scheduler",
+                log_group=scheduler_log_group
+            )
+        )
+
+        eventbridge_role = iam.Role(
+            self,
+            "EventBridgeSchedulerRole",
+            assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
+            description="IAM role for ScoreStream EventBridge Scheduler",
+        )
+
+        eventbridge_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "ecs:RunTask",
+                ],
+                resources=[scheduler_task.task_definition_arn],
+            )
+        )
+
+        eventbridge_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["iam:PassRole"],
+                resources=[scheduler_task_role.role_arn, scheduler_execution_role.role_arn],
+            )
+        )
+
+        # Helper to build the ECS target input
+        def ecs_target(job_name: str) -> dict:
+            return {
+                "arn": f"arn:aws:ecs:{self.region}:{self.account}:cluster/scorestream",
+                "roleArn": eventbridge_role.role_arn,
+                "ecsParameters": {
+                    "taskDefinitionArn": scheduler_task.task_definition_arn,
+                    "taskCount": 1,
+                    "launchType": "FARGATE",
+                    "networkConfiguration": {
+                        "awsvpcConfiguration": {
+                            "subnets": [
+                                subnet.subnet_id
+                                for subnet in network.vpc.private_subnets
+                            ],
+                            "securityGroups": [
+                                network.sg_producer.security_group_id
+                            ],
+                            "assignPublicIp": "DISABLED",
+                        }
+                    },
+                    "overrides": {
+                        "containerOverrides": [
+                            {
+                                "name": "SchedulerContainer",
+                                "environment": [
+                                    {
+                                        "name": "SCHEDULER_JOB",
+                                        "value": job_name,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+            }
+
+        # Standings refresh — every 30 minutes
+        scheduler.CfnSchedule(
+            self, "StandingsSchedule",
+            schedule_expression="rate(30 minutes)",
+            flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(
+                mode="OFF",
+            ),
+            target=scheduler.CfnSchedule.TargetProperty(
+                arn=f"arn:aws:ecs:{self.region}:{self.account}:cluster/scorestream",
+                role_arn=eventbridge_role.role_arn,
+                ecs_parameters=scheduler.CfnSchedule.EcsParametersProperty(
+                    task_definition_arn=scheduler_task.task_definition_arn,
+                    task_count=1,
+                    launch_type="FARGATE",
+                    network_configuration=scheduler.CfnSchedule.NetworkConfigurationProperty(
+                        awsvpc_configuration=scheduler.CfnSchedule.AwsVpcConfigurationProperty(
+                            subnets=[
+                                subnet.subnet_id
+                                for subnet in network.vpc.private_subnets
+                            ],
+                            security_groups=[network.sg_producer.security_group_id],
+                            assign_public_ip="DISABLED",
+                        )
+                    ),
+                ),
+                input=json.dumps({
+                    "containerOverrides": [
+                        {
+                            "name": "SchedulerContainer",
+                            "environment": [
+                                {"name": "SCHEDULER_JOB", "value": "standings"}
+                            ],
+                        }
+                    ]
+                }),
+            ),
+            name="scorestream-standings-refresh",
+        )
+
+        # Daily archive — midnight UTC
+        scheduler.CfnSchedule(
+            self, "ArchiveSchedule",
+            schedule_expression="cron(0 0 * * ? *)",
+            flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(
+                mode="OFF",
+            ),
+            target=scheduler.CfnSchedule.TargetProperty(
+                arn=f"arn:aws:ecs:{self.region}:{self.account}:cluster/scorestream",
+                role_arn=eventbridge_role.role_arn,
+                ecs_parameters=scheduler.CfnSchedule.EcsParametersProperty(
+                    task_definition_arn=scheduler_task.task_definition_arn,
+                    task_count=1,
+                    launch_type="FARGATE",
+                    network_configuration=scheduler.CfnSchedule.NetworkConfigurationProperty(
+                        awsvpc_configuration=scheduler.CfnSchedule.AwsVpcConfigurationProperty(
+                            subnets=[
+                                subnet.subnet_id
+                                for subnet in network.vpc.private_subnets
+                            ],
+                            security_groups=[network.sg_producer.security_group_id],
+                            assign_public_ip="DISABLED",
+                        )
+                    ),
+                ),
+                input=json.dumps({
+                    "containerOverrides": [
+                        {
+                            "name": "SchedulerContainer",
+                            "environment": [
+                                {"name": "SCHEDULER_JOB", "value": "archive"}
+                            ],
+                        }
+                    ]
+                }),
+            ),
+            name="scorestream-daily-archive",
         )

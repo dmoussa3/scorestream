@@ -75,7 +75,21 @@ manager = ConnectionManager()
 
 anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-DB_SCHEMA = """
+def get_current_season() -> int:
+    now = datetime.now()
+    # Football seasons start in August
+    # Jan-Jul 2026 → season 2025 (2025/26)
+    # Aug-Dec 2026 → season 2026 (2026/27)
+    # World Cup 2026 always uses 2026
+    if now.month >= 8:
+        return now.year
+    return now.year - 1
+
+CURRENT_SEASON = get_current_season()
+WORLD_CUP_SEASON = 2026  # World Cup runs entirely within 2026
+LAST_SEASON = CURRENT_SEASON - 1
+
+DB_SCHEMA = f"""
 These are the database tables for the ScoreStream application:
 
 games (
@@ -137,19 +151,18 @@ season_stats (
     player_name  VARCHAR,
     team_id      VARCHAR,
     team_name    VARCHAR,
-    league       VARCHAR,        -- 'epl', 'laliga', etc.
-    season       INTEGER,        -- start year e.g. 2025 for 2025/26
-    goals        INTEGER,        -- total goals scored in the season
+    league       VARCHAR,
+    season       INTEGER,  -- start year, current season is {CURRENT_SEASON}
+    goals        INTEGER,
     assists      INTEGER,
-    penalties    INTEGER,        -- penalty goals included in total
+    penalties    INTEGER,
     last_updated TIMESTAMP,
     PRIMARY KEY (player_id, league, season)
 )
 
-NOTE: season_stats contains aggregated totals from football-data.org.
-Use this table for questions like 'who is the top scorer this season'
-or 'how many goals has Haaland scored'. Do NOT use the goals table
-for season total queries — it only contains recent match events from ESPN.
+NOTE: Use season_stats for full-season totals (top scorers, assists, etc.)
+The goals table only contains recent ESPN match events.
+For World Cup season_stats use season = {WORLD_CUP_SEASON}.
 
 Note on leagues:
 - 'worldcup' refers to the 2026 FIFA World Cup
@@ -405,14 +418,14 @@ LIMIT 10;
 -- Who is the top scorer in the Bundesliga this season?
 SELECT player_name, team_name, goals, assists, penalties
 FROM season_stats
-WHERE league = 'bundesliga' AND season = 2025
+WHERE league = 'bundesliga' AND season = {CURRENT_SEASON}
 ORDER BY goals DESC
 LIMIT 10;
 
 -- Who has the most assists in the Premier League?
 SELECT player_name, team_name, assists
 FROM season_stats
-WHERE league = 'epl' AND season = 2025
+WHERE league = 'epl' AND season = {CURRENT_SEASON}
 ORDER BY assists DESC
 LIMIT 10;
 
@@ -423,10 +436,30 @@ SELECT
     ...
 FROM goals gl
 
+-- Who was the top scorer last season?
+-- First check if last season data exists
+SELECT COUNT(*) as row_count
+FROM season_stats
+WHERE season = {LAST_SEASON};
+
+-- If row_count > 0, then query:
+SELECT player_name, team_name, goals
+FROM season_stats
+WHERE league = 'epl' AND season = {LAST_SEASON}
+ORDER BY goals DESC
+LIMIT 10;
+
+-- If row_count = 0, fall back to current season
+SELECT player_name, team_name, goals
+FROM season_stats
+WHERE league = 'epl' AND season = {CURRENT_SEASON}
+ORDER BY goals DESC
+LIMIT 10;
+
 -- Show me a player's full stats
 SELECT player_name, team_name, goals, assists, penalties
 FROM season_stats
-WHERE player_name ILIKE '%Mbappe%' AND season = 2025;
+WHERE player_name ILIKE '%Mbappe%' AND season = {CURRENT_SEASON};
 
 -- Show me Barcelona's last game (NOT Espanyol)
 SELECT gm.home_team_name, gm.away_team_name, gm.home_score, gm.away_score, gm.start_time
@@ -632,8 +665,6 @@ def release_db(conn):
         except Exception as e:
             print(f"[api] Error releasing connection: {e}")
 
-CURRENT_SEASON = 2026
-
 # ── App ──────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -652,8 +683,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED,
-    allow_methods=["GET", "POST"],
+    allow_origin_regex=r"https://.*\.cloudfront\.net",
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -1021,7 +1052,7 @@ def get_leagues():
 
 ## ── Natural Language Q&A ───────────────────────────────────────────
 
-CHART_SYSYTEM_PROMPT = """You are a data visualization expert for a football data pipeline application called ScoreStream.
+CHART_SYSTEM_PROMPT = """You are a data visualization expert for a football data pipeline application called ScoreStream.
 Given a natural language question and SQL query results, and decide if it is better answered with a chart.
 
 Return a JSON object with EXACTLY these field names — no variations:
@@ -1228,12 +1259,20 @@ async def websocket_chat(websocket: WebSocket):
                     always JOIN goals and include scorer information, not just the final score
                     - When asked about "top goal scorers" or "who scored the most goals", use the season_stats table, not the goals table, since the goals table only contains recent events and may not have complete season data, same goes for questions about assists and penalties
                     - When asked about the current season's stats for a player, use the season_stats table, not the goals table
+                    - ONLY use these tables: games, goals, standings, season_stats — never reference any other table
+                    - Never use tables like player_stats, match_stats or any table not in the schema above
+                    - Current season is {CURRENT_SEASON} — always use this value for club league season_stats queries
+                    - For World Cup season_stats queries use season = {WORLD_CUP_SEASON}
+                    - Never hardcode a year in queries — always use {CURRENT_SEASON} for club leagues
+                    - Current season is {CURRENT_SEASON} — use this for all current season queries
+                    - Last season is {LAST_SEASON} but ScoreStream only has data for season {CURRENT_SEASON} onwards
+                    - If asked about 'last season' or 'previous season', check season_stats for season = {LAST_SEASON} first
+                    - If that returns no data, inform the user that historical data for {LAST_SEASON} is not available
+                    - and offer to show current season ({CURRENT_SEASON}) data instead
+                    - Never assume last season data exists — always use COUNT(*) to verify before querying
                     - When asked about a team's form over a period of time, use points as the metric, not goals scored
-                    - ONLY use these tables: games, goals, standings — never reference any other table
-                    - Never use tables like season_stats, player_stats, match_stats or any table not in the schema above
                     - Never filter by season year — the database contains whatever data has been ingested, no season column exists
                     - For top scorer queries always COUNT(*) from the goals table joined with games
-                    - Never use season = 2024 when checking season stats, use season = 2025 for the 2025/26 season since season is defined as the start year in the schema
                     - Always filter out own goals with AND gl.own_goal = false when counting goals for a player
                     - Any question about open play goals, they refer to any goal in the goals table where penalty_goal = false and the goal_type does not contain 'Penalty' or 'Free-kick' — do not assume that goal_type will always include the word 'Goal' for open play goals, as there are many variations in the data
                     - When searching for FC Barcelona specifically, always use:
@@ -1337,7 +1376,7 @@ async def websocket_chat(websocket: WebSocket):
                 chart_response = anthropic_client.messages.create(
                     model="claude-sonnet-4-6",
                     max_tokens=1500,
-                    system=CHART_SYSYTEM_PROMPT,
+                    system=CHART_SYSTEM_PROMPT,
                     messages=[{
                         "role": "user",
                         "content": f"Question: {expanded_question}\n\nData: {json.dumps(rows, default=str)}"
@@ -1422,6 +1461,10 @@ async def websocket_chat(websocket: WebSocket):
                     - Use country names not abbreviations in responses
                     - Never mention SQL or databases
                     - If data is empty say so clearly
+                    - If asked about last season ({LAST_SEASON}) and no data is returned, 
+                    explain that ScoreStream only has data from the {CURRENT_SEASON}/{CURRENT_SEASON + 1} season onwards
+                    and offer to show current season stats instead
+                    - Never say data for {LAST_SEASON} exists if the query returned zero rows
                     """,
                     messages=[{
                         "role": "user",

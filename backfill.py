@@ -4,11 +4,17 @@ from datetime import datetime
 import time
 import psycopg2
 
-API_KEY = os.getenv("FOOTBALL_DATA_ORG_API_KEY")
+API_KEY = os.getenv("FOOTBALL_DATA_API_KEY")
 if not API_KEY:
-    raise RuntimeError("FOOTBALL_DATA_ORG_API_KEY environment variable not set")
+    raise RuntimeError("FOOTBALL_DATA_API_KEY environment variable not set")
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://admin:password@postgres:5432/scorestream")
+DB_URL = os.getenv("DATABASE_URL") or (
+    f"postgresql://{os.getenv('DB_USER', 'admin')}:"
+    f"{os.getenv('DB_PASS', 'password')}@"
+    f"{os.getenv('DB_HOST', 'localhost')}:"
+    f"{os.getenv('DB_PORT', '5432')}/"
+    f"{os.getenv('DB_NAME', 'scorestream')}"
+)
 BASE_URL = "https://api.football-data.org/v4"
 
 # Map of league codes to their corresponding API identifiers
