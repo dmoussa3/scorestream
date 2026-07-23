@@ -7,3 +7,4 @@ slowapi
 redis[asyncio]==5.0.3
 websockets
 anthropic
+boto3>=1.26.0

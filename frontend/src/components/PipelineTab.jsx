@@ -1,159 +1,215 @@
 import { usePoll } from '../hooks/usePoll'
+import { useCallback, useEffect, useState } from 'react'
+
+const API = process.env.REACT_APP_API_URL || 'http://localhost:8000'
 
 const STATUS_STYLES = {
-    healthy: { dot: 'bg-[#00ff85]', badge: 'bg-[#00ff85]/20 text-[#00ff85]', label: 'Healthy' },
-    success: { dot: 'bg-[#00ff85]', badge: 'bg-[#00ff85]/20 text-[#00ff85]', label: 'Success' },
-    stale:   { dot: 'bg-yellow-500', badge: 'bg-yellow-900 text-yellow-300', label: 'Stale'    },
-    error:   { dot: 'bg-red-500',    badge: 'bg-red-900 text-red-300',       label: 'Error'    },
-    failed:  { dot: 'bg-red-500',    badge: 'bg-red-900 text-red-300',       label: 'Failed'   },
-    running: { dot: 'bg-blue-500',   badge: 'bg-blue-900 text-blue-300',     label: 'Running'  },
-    unknown: { dot: 'bg-purple-500', badge: 'bg-purple-900 text-purple-300', label: 'Unknown' },
+    OK: { bg: '#00ff85', text: '#003300', label: 'HEALTHY' },
+    ALARM: { bg: '#ef4444', text: '#ffffff', label: 'ALERT' },
+    INSUFFICIENT_DATA: { bg: '#f59e0b', text: '#ffffff', label: 'PENDING' },
+    MISSING: { bg: '#6b7280', text: '#ffffff', label: 'UNKNOWN' },
 }
 
-const getStyle = (status) => STATUS_STYLES[status] || STATUS_STYLES.unknown
+function ComponentCard({ name, component, theme }) {
+    const colors = STATUS_STYLES[component.state] || STATUS_STYLES.MISSING
 
-const timeAgo = (isoString) => {
-    if (!isoString) return 'never'
-    
-    const utcString = isoString.endsWith('Z') || isoString.includes('+')
-        ? isoString
-        : `${isoString}Z`
-    
-    const seconds = Math.floor((Date.now() - new Date(utcString)) / 1000)
-    
-    if (seconds < 0)     return 'just now'          // clock skew safety net
-    if (seconds < 60)    return `${seconds}s ago`
-    if (seconds < 3600)  return `${Math.floor(seconds / 60)}m ago`
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
-    return `${Math.floor(seconds / 86400)}d ago`
-}
-
-function StatusCard({ title, status, metrics }) {
-    const style = getStyle(status)
     return (
-        <div className="bg-[#2d0032] border border-purple-800 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${style.dot} ${status === 'healthy' || status === 'success' ? 'animate-pulse' : ''}`} />
-                    <span className="text-sm font-semibold text-white">{title}</span>
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded font-medium ${style.badge}`}>
-                    {style.label}
+        <div
+            style={{ backgroundColor: theme?.secondary, borderColor: theme?.border }}
+            className="border rounded-lg p-4 flex flex-col gap-2"
+        >
+            <div className="flex items-center justify-between">
+                <span className="text-white font-medium text-sm">
+                    {component.label || name}
+                </span>
+                <span
+                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: colors.bg, color: colors.text }}
+                >
+                    {colors.label}
                 </span>
             </div>
-            <div className="space-y-1.5">
-                {metrics.map(({ label, value }) => (
-                    <div key={label} className="flex justify-between text-xs">
-                        <span className="text-purple-400">{label}</span>
-                        <span className="text-purple-200 font-medium">{value ?? '—'}</span>
+
+            {/* State detail */}
+            {component.state === 'ALARM' && component.reason && (
+                <p className="text-xs text-red-400 opacity-80">
+                    {component.reason}
+                </p>
+            )}
+
+            {/* Producer-specific: last poll info */}
+            {component.last_poll && (
+                <div className="text-xs text-purple-300 space-y-0.5">
+                    <div>
+                        Last poll: {new Date(component.last_poll).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            timeZone: 'America/New_York',
+                        })} EDT
                     </div>
-                ))}
-            </div>
+                    {component.stale && (
+                        <div className="text-yellow-400">
+                            ⚠ Poll appears stale ({Math.floor(component.poll_age_seconds / 60)}m ago)
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Last state change */}
+            {component.updated && (
+                <p className="text-xs opacity-40" style={{ color: theme?.text }}>
+                    Updated {new Date(component.updated).toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        timeZone: 'America/New_York',
+                    })} EDT
+                </p>
+            )}
         </div>
     )
 }
 
-export default function PipelineTab({active}) {
-    const { data, loading, error } = usePoll('/health/pipeline', 60000, active)
+export default function PipelineTab({ theme }) {
+    const [health, setHealth]   = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [error, setError]     = useState(null)
+    const [lastRefresh, setLastRefresh] = useState(null)
 
-    if (loading) return <div className="text-white p-4">Loading pipeline status...</div>
-    if (error)   return <div className="text-red-500 p-4">Error loading pipeline health: {error}</div>
-    if (!data)   return null
+    const fetchHealth = useCallback(async () => {
+        try {
+            const res  = await fetch(`${API}/health/pipeline`)
+            const data = await res.json()
+            setHealth(data)
+            setLastRefresh(new Date())
+            setError(null)
+        } catch (err) {
+            setError(err.message || 'Failed to fetch pipeline health')
+        } finally {
+            setLoading(false)
+        }
+    }, [])
 
-    const { postgres, kafka, airflow, producer } = data
+    useEffect(() => { fetchHealth() }, [fetchHealth])
+
+    useEffect(() => {
+        const interval = setInterval(fetchHealth, 30 * 1000)
+        return () => clearInterval(interval)
+    }, [fetchHealth])
+
+    if (loading) return (
+        <div className="p-4" style={{ color: theme?.accent }}>
+            Loading pipeline health...
+        </div>
+    )
+
+    if (error) return (
+        <div className="p-4 text-red-400">
+            Error: {error}
+        </div>
+    )
+
+    if (health?.error) return (
+        <div className="p-4 text-yellow-400">
+            {health.error}
+        </div>
+    )
+
+    const components = health?.components || {}
+
+    // Group components for layout
+    const groups = [
+        {
+            label: "Compute",
+            keys: ["producer", "api"],
+        },
+        {
+            label: "Load Balancer",
+            keys: ["alb_errors", "alb_latency"],
+        },
+        {
+            label: "Data Layer",
+            keys: ["kafka", "rds_connections", "rds_cpu"],
+        },
+    ]
+
+    const overallHealthy = health?.overall
 
     return (
-        <div className="space-y-6">
+        <div className="max-w-4xl mx-auto space-y-6">
 
-            {/* Page header */}
-            <div>
-                <h2 className="text-lg font-semibold text-white">
-                    Pipeline Health
-                </h2>
-                <p className="text-sm text-white opacity-60 mt-0.5">
-                    Real-time status of all ScoreStream pipeline components — updates every 60s
-                </p>
+            {/* Overall status banner */}
+            <div
+                className="border rounded-lg p-4 flex items-center justify-between"
+                style={{
+                    backgroundColor: overallHealthy ? '#00220f' : '#220000',
+                    borderColor: overallHealthy ? '#00ff85' : '#ef4444',
+                }}
+            >
+                <div className="flex items-center gap-3">
+                    <span className="text-2xl">
+                        {overallHealthy ? '✅' : '🔴'}
+                    </span>
+                    <div>
+                        <p className="text-white font-semibold">
+                            {overallHealthy
+                                ? 'All systems operational'
+                                : 'Pipeline issue detected'}
+                        </p>
+                        <p className="text-xs opacity-60 text-white">
+                            Powered by CloudWatch alarms
+                        </p>
+                    </div>
+                </div>
+                <div className="text-right">
+                    <button
+                        onClick={fetchHealth}
+                        style={{ color: theme?.accent }}
+                        className="text-xs hover:opacity-80 transition-opacity"
+                    >
+                        ↻ Refresh
+                    </button>
+                    {lastRefresh && (
+                        <p className="text-xs text-white opacity-40 mt-1">
+                            {lastRefresh.toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                timeZone: 'America/New_York',
+                            })} EDT
+                        </p>
+                    )}
+                </div>
             </div>
 
-            {/* Producer */}
-            <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
-                    Ingestion
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    <StatusCard
-                        title="ESPN Producer"
-                        status={producer.status}
-                        metrics={[
-                            { label: 'Last poll',  value: timeAgo(producer.last_poll) },
-                            { label: 'Poll interval', value: '30s' },
-                            { label: 'Source', value: 'ESPN Public API' },
-                        ]}
-                    />
+            {/* Component groups */}
+            {groups.map(group => (
+                <div key={group.label}>
+                    <h3
+                        className="text-xs font-semibold uppercase tracking-wider mb-3"
+                        style={{ color: theme?.accent, opacity: 0.7 }}
+                    >
+                        {group.label}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {group.keys.map(key => (
+                            components[key] && (
+                                <ComponentCard
+                                    key={key}
+                                    name={key}
+                                    component={components[key]}
+                                    theme={theme}
+                                />
+                            )
+                        ))}
+                    </div>
                 </div>
-            </section>
+            ))}
 
-            {/* Kafka */}
-            <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
-                    Message Broker — Kafka
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {Object.entries(kafka).map(([topic, info]) => (
-                        <StatusCard
-                            key={topic}
-                            title={topic}
-                            status={info.status}
-                            metrics={[
-                                { label: 'Total messages', value: info.message_count.toLocaleString() },
-                                { label: 'Partitions',     value: '1' },
-                                { label: 'Retention',      value: '24h' },
-                            ]}
-                        />
-                    ))}
-                </div>
-            </section>
-
-            {/* PostgreSQL tables */}
-            <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
-                    Storage — PostgreSQL
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {Object.entries(postgres).map(([table, info]) => (
-                        <StatusCard
-                            key={table}
-                            title={`${table} table`}
-                            status={info.status}
-                            metrics={[
-                                { label: 'Row count',     value: info.count.toLocaleString() },
-                                { label: 'Last updated',  value: timeAgo(info.last_updated) },
-                            ]}
-                        />
-                    ))}
-                </div>
-            </section>
-
-            {/* Airflow DAGs */}
-            <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
-                    Orchestration — Airflow
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {Object.entries(airflow).map(([dag, info]) => (
-                        <StatusCard
-                            key={dag}
-                            title={dag.replace(/_/g, ' ')}
-                            status={info.status}
-                            metrics={[
-                                { label: 'Last run',  value: timeAgo(info.last_run) },
-                                { label: 'State',     value: info.state },
-                                { label: 'Schedule',  value: dag.includes('refresh') ? 'Every 30min' : 'Daily midnight' },
-                            ]}
-                        />
-                    ))}
-                </div>
-            </section>
+            {/* Footer note */}
+            <p className="text-xs text-center opacity-40" style={{ color: theme?.text }}>
+                Alarm states update every 30 seconds · CloudWatch evaluation period: 5 minutes
+            </p>
         </div>
     )
 }

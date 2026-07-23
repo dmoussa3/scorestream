@@ -19,8 +19,6 @@ from fastapi import FastAPI, HTTPException, Path, Query, Request, WebSocket, Web
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-from kafka import KafkaAdminClient, KafkaConsumer
-from kafka.structs import TopicPartition
 
 from datetime import datetime, timedelta, timezone
 
@@ -30,6 +28,8 @@ from slowapi.errors import RateLimitExceeded
 
 import asyncio
 import redis.asyncio as aioredis
+import boto3
+from botocore.exceptions import ClientError
 
 # ── Config ───────────────────────────────────────────────────────────
 DB_CONFIG = {
@@ -78,10 +78,10 @@ anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 def get_current_season() -> int:
     now = datetime.now()
     # Football seasons start in August
-    # Jan-Jul 2026 → season 2025 (2025/26)
-    # Aug-Dec 2026 → season 2026 (2026/27)
+    # Jan-Jun 2026 → season 2025 (2025/26)
+    # Jul-Dec 2026 → season 2026 (2026/27)
     # World Cup 2026 always uses 2026
-    if now.month >= 8:
+    if now.month >= 7:
         return now.year
     return now.year - 1
 
@@ -767,110 +767,104 @@ def health():
 @app.get("/health/pipeline")
 @limiter.limit("10/minute")
 def health_pipeline(request: Request):
-    """Check that the data pipeline is functioning correctly."""
-    cached = cache.get("pipeline_health")
-    if cached:
-        return json.loads(cached)
-
-    conn = None
-
+    """Check that the data pipeline is functioning correctly based on CloudWatch metrics."""
     try:
-        conn = get_db()
-        cursor = get_db_cursor(conn)
+        cw = boto3.client("cloudwatch", region_name=os.getenv("AWS_REGION", "us-east-1"))
 
-        status = {"airflow": {}, "kafka": {}, "postgres": {}, "producer": {}}
+        alarm_names = [
+            "scorestream-producer-down",
+            "scorestream-api-down",
+            "scorestream-alb-5xx",
+            "scorestream-alb-latency",
+            "scorestream-msk-lag",
+            "scorestream-rds-connections",
+            "scorestream-rds-cpu"
+        ]
 
-        admin = KafkaAdminClient(bootstrap_servers="kafka:29092")
-        consumer = KafkaConsumer(bootstrap_servers="kafka:29092")
-        topics = ["sports.live.scores", "sports.standings"]
+        response = cw.describe_alarms(AlarmNames=alarm_names)
+        alarms = {a['AlarmName']: a for a in response['MetricAlarms']}
 
-        # Check Kafka topic health by getting message counts for each topic
-        for topic in topics:
-            try:
-                partitions = consumer.partitions_for_topic(topic)
-                if not partitions:
-                    status["kafka"][topic] = {"message_count": 0, "status": "unknown"}
-                    continue
-                
-                tps = [TopicPartition(topic, p) for p in partitions]
-                end_offsets = consumer.end_offsets(tps)
-                total_messages = sum(end_offsets.values())
-                status["kafka"][topic] = {"message_count": total_messages, "status": "healthy"}
-            except Exception as e:
-                status["kafka"][topic] = {"message_count": 0, "status": str(e)}
+        def alarm_status(name):
+            if name not in alarms:
+                return {"healthy": None, "state": "MISSING", "reason": "Alarm not found"}
 
-        consumer.close()
-        admin.close()
-
-        # Check PostgreSQL by running a simple query for each table
-        try:
-            cursor.execute("""
-                SELECT
-                    (SELECT COUNT(*) FROM games) AS games_count,
-                    (SELECT MAX(last_updated) FROM games) AS last_game_update,
-                    (SELECT COUNT(*) FROM goals) AS goals_count,
-                    (SELECT MAX(created_at) FROM goals) AS last_goal_update,
-                    (SELECT COUNT(*) FROM standings) AS standings_count,
-                    (SELECT MAX(last_updated) FROM standings) AS last_standings_update
-            """)
-            
-            stats = cursor.fetchone()
-
-            status["postgres"]["games"] = {"count": stats["games_count"], "last_updated": stats["last_game_update"].isoformat() if stats["last_game_update"] else None, "status": get_status(stats["last_game_update"], 2)}
-            status["postgres"]["goals"] = {"count": stats["goals_count"], "last_updated": stats["last_goal_update"].isoformat() if stats["last_goal_update"] else None, "status": get_status(stats["last_goal_update"], 5)}
-            status["postgres"]["standings"] = {"count": stats["standings_count"], "last_updated": stats["last_standings_update"].isoformat() if stats["last_standings_update"] else None, "status": get_status(stats["last_standings_update"], 35)}
-        except Exception as e:
-            status["postgres"] = {"error": str(e)}
-
-        # Check Airflow DAGs
-        try:
-            cursor.execute("""
-                SELECT dag_id, state, execution_date, end_date
-                FROM dag_run
-                WHERE dag_id IN ('standings_refresh', 'daily_archive')
-                ORDER BY execution_date DESC
-            """)
-
-            dag_runs = cursor.fetchall()
-
-            for dag_run in dag_runs:
-                if dag_run["dag_id"] not in status["airflow"]:
-                    status["airflow"][dag_run["dag_id"]] = {
-                        "last_run": dag_run["end_date"].isoformat() if dag_run["end_date"] else None,
-                        "state": dag_run["state"],
-                        "status": "healthy" if dag_run["state"] == "success" else "error" if dag_run["state"] == "failed" else "running"
-                    }
-        except Exception as e:
-            status["airflow"] = {"error": str(e)}
-
-        # Check producer health by querying metadata table
-        try:
-            cursor.execute("SELECT value, last_updated FROM pipeline_metadata WHERE key = 'last_poll'")
-            result = cursor.fetchone()
-
-            status["producer"]["last_poll"] = result["last_updated"].isoformat() if result else None
-            status["producer"]["status"] = get_status(result["last_updated"], 2) if result else "unknown"
-        except Exception as e:
-            status["producer"] = {"status": str(e)}
+            alarm = alarms[name]
+            state = alarm['StateValue']
+            return {
+                "healthy": state == 'OK',
+                "state": state,
+                "reason": alarm.get('StateReason', 'No reason provided'),
+                "updated": alarm.get('StateUpdatedTimestamp', None).isoformat() if alarm.get('StateUpdatedTimestamp') else None
+            }
         
-        cache.setex("pipeline_health", 30, json.dumps(status, default=str))  # cache for 30s
-        return status
-    finally:
-        release_db(conn)
+        conn = None
+        last_poll = None
+        poll_age = None
 
-def get_status(last_updated, threshold_minutes):
-    if not last_updated:
-        return "unknown"
-    
-    if last_updated.tzinfo is None:
-        last_updated = last_updated.replace(tzinfo=timezone.utc)
+        try:
+            conn = get_db()
+            cursor = get_db_cursor(conn)
+            cursor.execute("SELECT value,last_updated FROM pipeline_metadata where key = 'last_poll'")
+            row = cursor.fetchone()
 
-    age = datetime.now(timezone.utc) - last_updated
+            if row:
+                last_poll = row['last_updated'].isoformat()
+                last_updated = row['last_updated']
 
-    if age > timedelta(minutes=threshold_minutes):
-        return "stale"
-    
-    return "healthy"
+                if last_updated.tzinfo is None:
+                    last_updated = last_updated.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - last_updated
+                poll_age = int(age.total_seconds())
+        except Exception as e:
+            print(f"[health] Error fetching last_poll: {e}")
+        finally:
+            release_db(conn)
+
+        return {
+            "components": {
+                "producer": {
+                    **alarm_status("scorestream-producer-down"),
+                    "label": "ESPN Producer",
+                    "last_poll": last_poll,
+                    "poll_age_seconds": poll_age,
+                    "stale": poll_age is not None and poll_age > 120
+                },
+                "api": {
+                    **alarm_status("scorestream-api-down"),
+                    "label": "ScoreStream FastAPI"
+                },
+                "alb_errors": {
+                    **alarm_status("scorestream-alb-5xx"),
+                    "label": "ALB 5xx Errors"
+                },
+                "kafka": {
+                    **alarm_status("scorestream-msk-lag"),
+                    "label": "MSK Kafka Lag"
+                },
+                "rds_connections": {
+                    **alarm_status("scorestream-rds-connections"),
+                    "label": "RDS Connections"
+                },
+                "rds_cpu": {
+                    **alarm_status("scorestream-rds-cpu"),
+                    "label": "RDS CPU Usage"
+                }
+            },
+            "overall": all(
+                c.get("healthy") is not False
+                for c in [
+                    alarm_status("scorestream-producer-down"),
+                    alarm_status("scorestream-api-down"),
+                    alarm_status("scorestream-msk-lag"),
+                ]
+            )
+        }
+    except ClientError as e:
+        print(f"[health] CloudWatch query failed: {e}")
+        return {"error": "Couldn't reach CloudWatch", "components": {}}
+    except Exception as e:
+        print(f"[health] Pipeline Health error: {e}")
+        return {"error": "Unexpected error", "components": {}}
 
 ## ── Games ───────────────────────────────────────────────────────────
 

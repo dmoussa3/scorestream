@@ -41,6 +41,7 @@ class DataStack(Stack):
             subnet_group=rds_subnet_group,
             security_groups=[network.sg_rds],
             database_name="scorestream",
+            instance_identifier="scorestream-rds",
             credentials=rds.Credentials.from_generated_secret(username="scorestream", secret_name="scorestream/rds-credentials"),
             multi_az=False,
             allocated_storage=20,

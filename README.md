@@ -1,30 +1,30 @@
 # ScoreStream
 
-A real-time football data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose.
+A real-time football data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose for local development and deployed to AWS using CDK.
 
-ScoreStream ingests live match data from **5 major European leagues and the FIFA World Cup** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel Airflow batch layer handles scheduled standings refreshes, season stats aggregation, and daily Parquet archiving. A natural language chat interface powered by Claude — with streamed, real-time responses over WebSocket — allows users to query live pipeline data in plain English and receive both text answers and dynamically generated charts.
+ScoreStream ingests live match data from **5 major European leagues and the FIFA World Cup** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel batch layer handles scheduled standings refreshes, season stats aggregation, and daily Parquet archiving. A natural language chat interface powered by Claude — with streamed, real-time responses over WebSocket — allows users to query live pipeline data in plain English and receive both text answers and dynamically generated charts.
 
 ---
 
 ## Architecture
+
+### Local Development
 
 ```
 ESPN Public API (polled every 30s — 6 competitions)
         │
         ▼
 Python Producer
-        │  publishes to Kafka topics
+        │  publishes to Kafka topic
         ▼
 ┌─────────────────────────────────────┐
 │  sports.live.scores (3 partitions)  │  game state + goal events
-│  sports.standings   (1 partition)   │  league/group table snapshots
 └─────────────────────────────────────┘
         │
         ▼
 PySpark Structured Streaming
   ├── process_games     →  games table       (upsert, every 5s)
-  └── process_goals     →  goals table       (delete-then-upsert keyed on game_id + team_id + seconds,
-                                              so ESPN goal-scorer corrections update in place rather than creating duplicates)
+  └── process_goals →  goals table   (delete-then-upsert keyed on game_id + team_id + seconds)
         │
         ▼
 PostgreSQL ←→ Redis (dynamic TTL)
@@ -33,17 +33,65 @@ PostgreSQL ←→ Redis (dynamic TTL)
         ▼
 FastAPI REST API + WebSocket (/ws, /ws/chat)
 
-Airflow (parallel batch layer)
-  ├── standings_refresh    →  every 30 min, all 6 competitions, removes
-  │                            relegated/dropped teams automatically
-  └── daily_archive    →  nightly Parquet snapshots to ./archive/
+Airflow (batch layer)
+  ├── standings_refresh    →  every 30 min, all 6 competitions
+  ├── season_stats_refresh →  every 15 min
+  └── epl_daily_archive    →  nightly Parquet snapshots
 
 Claude AI Chat (/ws/chat — streamed over WebSocket)
   ├── SQL generation       →  natural language → PostgreSQL query
   ├── Query execution      →  safe read-only execution
-  ├── Chart detection      →  decides bar/line/pie or text-only response
-  └── Answer streaming     →  token-by-token response via Claude's streaming API,
-                               pushed live to the frontend as it's generated
+  ├── Chart detection      →  bar / line / pie or text-only
+  └── Answer streaming     →  token-by-token via Claude streaming API
+```
+
+### AWS Production
+
+```
+Users
+  ↓ HTTPS
+CloudFront → S3 (React frontend)
+  ↓ HTTP
+ALB → FastAPI (ECS Fargate, private subnet)
+         ↓                    ↓
+    RDS PostgreSQL      ElastiCache Redis
+         ↑
+    AWS Glue Streaming ←── Amazon MSK ←── Producer (ECS Fargate) ←── ESPN API
+
+EventBridge Scheduler → Fargate tasks (standings refresh, daily archive)
+                                ↓
+                          RDS + S3
+
+CloudWatch Dashboard + Alarms → SNS → Email
+```
+
+---
+
+## AWS Infrastructure (CDK)
+
+The entire AWS infrastructure is defined as code using AWS CDK (Python) in the `infra/` directory. The stack is organized into six independent deployable units:
+
+| Stack | Resources |
+|---|---|
+| NetworkStack | VPC, public/private subnets, NAT gateway, security groups, Secrets Manager |
+| DataStack | RDS PostgreSQL, ElastiCache Redis, S3 (Glue scripts and checkpoints) |
+| MskStack | Amazon MSK Kafka cluster with IAM authentication |
+| ComputeStack | ECS cluster, producer service, Glue streaming job, API service, ALB, scheduler tasks, EventBridge schedules |
+| EdgeStack | S3 (frontend), CloudFront distribution with OAC |
+| MonitoringStack | CloudWatch dashboard, alarms, SNS topic |
+
+Deploy all stacks:
+
+```bash
+cd infra
+pip install -r requirements.txt
+cdk deploy --all
+```
+
+Tear down:
+
+```bash
+cdk destroy --all
 ```
 
 ---
@@ -57,22 +105,20 @@ Claude AI Chat (/ws/chat — streamed over WebSocket)
 | Bundesliga | ger.1 | 18 | Club |
 | Serie A | ita.1 | 20 | Club |
 | Ligue 1 | fra.1 | 20 | Club |
-| FIFA World Cup | fifa.world | 48 | National (group stage + knockout) |
-
-Standings automatically drop relegated/eliminated teams each refresh cycle — the Airflow DAG deletes any team no longer present in ESPN's current response for a given league/season, so promoted and relegated teams stay in sync across season boundaries without manual cleanup.
+| FIFA World Cup | fifa.world | 48 | National |
 
 ---
 
-## Services
+## Local Services
 
 | Service | Port | Description |
 |---|---|---|
-| FastAPI | 8000 | REST API + WebSocket (`/ws`) + streamed AI chat (`/ws/chat`) |
-| Frontend | 3000 | React dashboard UI |
-| Airflow | 8081 | Pipeline orchestration UI |
-| Kafka UI | 8090 | Topic and message inspection |
+| FastAPI | 8000 | REST API + WebSocket + streamed AI chat |
+| Frontend | 3000 | React dashboard |
+| Airflow | 8081 | Pipeline orchestration |
+| Kafka UI | 8090 | Topic inspection |
 | PostgreSQL | 5432 | Primary database |
-| Redis | 6379 | API response cache + pub/sub broker |
+| Redis | 6379 | Cache + pub/sub |
 
 ---
 
@@ -82,7 +128,8 @@ Standings automatically drop relegated/eliminated teams each refresh cycle — t
 ```
 game_id, league, home_team, away_team, home_team_name, away_team_name,
 home_id, away_id, home_logo, away_logo, home_score, away_score,
-status, status_detail, period, clock, start_time (TIMESTAMPTZ), last_updated
+shootout_home, shootout_away, status, status_detail, period, clock,
+start_time (TIMESTAMPTZ), round, last_updated
 ```
 
 **goals**
@@ -91,7 +138,8 @@ id, game_id, league, player_id, player_name, team_id,
 minute, seconds (FLOAT), goal_type, own_goal, penalty_goal, created_at
 UNIQUE (game_id, team_id, seconds)
 ```
-The unique constraint is keyed on `team_id` rather than `player_id` — ESPN occasionally reassigns which player is credited for a goal scored at a fixed moment (most commonly own-goal corrections), and the team + timing is the stable identity of the event, not the player attribution. Spark's delete-then-upsert step removes any goal whose `(team_id, seconds)` no longer appears in ESPN's current payload before re-inserting, so corrections update in place instead of producing duplicate rows.
+
+The unique constraint is keyed on `team_id` rather than `player_id` — ESPN occasionally reassigns which player is credited for a goal (most commonly own-goal corrections), and the team + timing is the stable identity of the event. Spark's delete-then-upsert removes any goal no longer present in ESPN's current payload before re-inserting, so corrections update in place without producing duplicates. Penalty shootout kicks are filtered out in the producer using a combination of ESPN's `shootout` flag and a defensive clock-value check (≥7200 seconds in a penalties-final status game).
 
 **standings**
 ```
@@ -100,7 +148,6 @@ points, goals_for, goals_against, goal_diff, matches_played,
 rank, deductions, note, note_color, logo_url, last_updated
 PRIMARY KEY (team_id, league, season)
 ```
-`group_name`, `note`, and `note_color` support World Cup group-stage display (qualification status text and color sourced directly from ESPN). `logo_url` stores ESPN's CDN URL directly per team, avoiding the need to maintain a manual team-ID-to-logo mapping for every data source.
 
 **season_stats**
 ```
@@ -121,32 +168,32 @@ key, value, last_updated
 ```
 GET   /                          — Service info
 GET   /health                    — DB and cache connectivity
-GET   /health/pipeline           — Full pipeline component status (rate limited 10/min)
-GET   /games                     — All games, filterable by ?status=, ?league=, ?window=
-GET   /games/{game_id}           — Single game by ID
-GET   /games/{game_id}/stats     — Goal events for a specific game
+GET   /health/pipeline           — Pipeline component status
+GET   /games                     — Games, filterable by ?status=, ?league=, ?window=
+GET   /games/{game_id}           — Single game
+GET   /games/{game_id}/stats     — Goal events for a game
 GET   /standings                 — League/group table by ?league=
-GET   /leagues                   — List of all competitions with data
-POST  /chat                      — Natural language query endpoint (non-streamed, legacy)
-WS    /ws                        — WebSocket real-time score/standings push
-WS    /ws/chat                   — Streamed natural language chat (token-by-token)
+GET   /leagues                   — All competitions with data
+POST  /chat                      — Natural language query (legacy)
+WS    /ws                        — Real-time score/standings push
+WS    /ws/chat                   — Streamed AI chat
 ```
 
 ---
 
 ## Dashboard
 
-A React single-page application with five views, a competition selector, and per-league theming:
+A React single-page application with six views and per-competition theming:
 
-**Competition Selector** — Switch between Premier League, La Liga, Bundesliga, Serie A, Ligue 1, and the FIFA World Cup. The entire app's color scheme (header, nav, cards, charts) updates to match the selected competition, including a dedicated background shade derived from each league's primary color.
+**Scores** — Match cards grouped by Eastern Time date (Today / Tomorrow / Yesterday / full date), live games sorted first within each day. Auto-scrolls to today's matches on load. Updates via WebSocket push.
 
-**Live Scores** — Match cards grouped by date (Today / Tomorrow / Yesterday / full date), sorted with live games first within each day. Dates are computed in UTC to avoid the day-boundary bugs that arise from late-evening Eastern Time kickoffs. On load, the page automatically scrolls to today's matches if any exist. Updates in real time via WebSocket push.
+**Standings** — Club leagues: full table with points, goal difference, color-coded UEFA qualification and relegation zones. World Cup: responsive grid of group tables with ESPN qualification notes and team logos.
 
-**League Table / Group Standings** — For club leagues: a full standings table with points, goal difference, and color-coded UEFA qualification and relegation zones (calculated per-league, since cutoffs differ across competitions). For the World Cup: a responsive grid of group tables showing ESPN's live qualification notes and team logos. Rendered using semantic `<table>` markup so columns size correctly regardless of team name length.
+**Bracket** — World Cup knockout bracket with connector lines between rounds. Uses a hybrid linkage strategy: winner-matching for resolved games and placeholder-name parsing ("Round of 32 8 Winner" → slot 8) for unresolved fixtures, so bracket positioning locks in immediately when fixtures are scheduled rather than waiting for games to finish. Fixed-slot vertical spacing (doubling per round) ensures cards align correctly between columns.
 
-**Match Detail** — Per-game view with score header, team logos, goal scorers (correctly attributed even after ESPN reassigns a scorer), and a visual goal timeline. For live games the timeline acts as a real-time progress bar with a clock that interpolates between 30-second API updates rather than jumping discretely. VAR-cancelled goals are automatically removed from the timeline and scorer list.
+**Match Detail** — Score header with shootout scores when applicable, goal scorers correctly attributed after ESPN corrections, visual goal timeline with dynamic duration for extra time games. Live games show an interpolated clock that ticks between 30-second API updates.
 
-**Ask ScoreStream** — Natural language chat interface powered by Claude, with responses streamed token-by-token over a dedicated WebSocket connection for near-instant perceived response time. Generates Recharts visualizations inline for data that suits a chart, with a "show query" toggle revealing the generated SQL for transparency. Supports follow-up questions via conversation history.
+**Ask ScoreStream** — Natural language chat powered by Claude, streamed token-by-token over a dedicated WebSocket. Generates Recharts visualizations inline. Supports follow-up questions via conversation history. "Show query" toggle reveals the generated SQL.
 
 **Pipeline Health** — Internal dashboard showing status of every pipeline component.
 
@@ -155,19 +202,19 @@ A React single-page application with five views, a competition selector, and per
 ## Ask ScoreStream (AI Chat)
 
 ```
-User question (sent over WebSocket)
+User question (WebSocket)
     ↓
 Alias expansion (PSG → Paris Saint-Germain, Holland → Netherlands, etc.)
     ↓
 Claude — SQL generation (schema + examples + team aliases + World Cup context)
     ↓
-PostgreSQL — safe read-only query execution
+PostgreSQL — safe read-only execution
     ↓
 Claude — chart decision (bar / line / pie / text-only)
     ↓
-Claude — STREAMED answer generation, pushed to the client chunk-by-chunk
+Claude — STREAMED answer, pushed token-by-token to the frontend
     ↓
-React — text renders live as it streams in; chart + "show query" appear once complete
+React — text renders live; chart + SQL toggle appear on completion
 ```
 
 **Example questions:**
@@ -176,33 +223,26 @@ React — text renders live as it streams in; chart + "show query" appear once c
 - "Who scored in Arsenal's last game?"
 - "Which teams have qualified from Group A?"
 - "Has anyone scored a penalty at the World Cup?"
+- "What proportion of goals were open play vs penalties in Ligue 1?"
 - "Show me PSG's form over their last 5 games"
-- "What proportion of goals were open play vs penalties vs own goals in Ligue 1?"
-- "Which games went to extra time at the World Cup?"
-
-**Architecture notes:**
-- The SQL-generation, query-execution, and chart-decision steps run sequentially but quickly (a few seconds total); only the final answer-formatting step is streamed, since it's the only inherently sequential, token-by-token part of the pipeline
-- The schema explicitly documents *derived* categories (e.g. "open play" = `own_goal = false AND penalty_goal = false`) so Claude doesn't report data as "unavailable" when it's actually computable from existing boolean flags
-- "How many" and "are there any" style questions are pushed toward `COUNT(*)` queries so a zero result is a real, single-row answer rather than an empty result set that triggers a generic fallback message
-- Chart responses are parsed defensively: markdown code fences are stripped via regex, `x_key`/`y_key` field names are normalized across multiple naming variations Claude might use, and any mismatched key is auto-corrected by inspecting the actual data's field types
 
 **Safety measures:**
-- Generated SQL checked for forbidden write operations before execution
+- Generated SQL checked for write operations before execution
 - Only SELECT statements permitted
-- Queries limited to 20 rows maximum
-- Truncated SQL detected via `stop_reason` and rejected cleanly
+- Queries limited to 20 rows
+- Truncated SQL detected via `stop_reason` and rejected
 
 ---
 
 ## Historical Data
 
-Recent matches (last ~3 weeks) are ingested live via the ESPN producer, which only retains scoreboard data for a limited window. Full season historical data is backfilled using the football-data.org API via `backfill_historical.py`:
+ESPN retains ~3 weeks of scoreboard history. Full season historical data is backfilled via football-data.org:
 
 ```bash
 python backfill_historical.py
 ```
 
-The script maps football-data.org team IDs to ESPN team IDs (a manually curated mapping of 96+ teams across all five leagues) so logos render correctly for historical games regardless of which data source populated them. World Cup data is ingested entirely live via the ESPN producer — no backfill needed, since the tournament window falls within ESPN's retention period.
+A manually curated mapping of 96+ teams ensures ESPN team IDs are used for historical games so logos render correctly. World Cup data is ingested live — no backfill needed.
 
 ---
 
@@ -211,49 +251,51 @@ The script maps football-data.org team IDs to ESPN team IDs (a manually curated 
 ```
 scorestream/
 ├── docker-compose.yml
-├── restart.sh                      # safe restart — clears Spark checkpoints (incl. hidden files)
-├── backfill_historical.py          # one-time historical data import
+├── restart.sh
+├── backfill_historical.py
 ├── sql/
 │   └── init.sql
 ├── producer/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── espn_producer.py            # ESPN API → Kafka (6 competitions)
+│   └── espn_producer.py            # ESPN → Kafka (6 competitions)
 ├── spark/
+│   ├── streaming_job.py            # Local PySpark consumer
+│   └── streaming_job_aws.py        # AWS Glue streaming consumer
+├── scheduler/
 │   ├── Dockerfile
-│   ├── requirements.txt
-│   └── streaming_job.py            # PySpark Structured Streaming consumer
+│   ├── entrypoint.sh               # Routes SCHEDULER_JOB env var to script
+│   ├── refresh_standings.py
+│   ├── refresh_season_stats.py
+│   └── archive_daily.py
 ├── dags/
-│   ├── standings_refresh.py        # 30 min — all leagues + World Cup groups,
-│   │                                 removes relegated/dropped teams
-│   ├── season_stats_refresh.py     # 15 min — aggregates goals into season_stats
-│   └── epl_daily_archive.py        # nightly Parquet archive
+│   ├── standings_refresh.py
+│   ├── season_stats_refresh.py
+│   └── epl_daily_archive.py
 ├── api/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── main.py                     # FastAPI + WebSocket + streamed /ws/chat AI endpoint
+│   └── main.py                     # FastAPI + WebSocket + /ws/chat
 ├── frontend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── public/
-│   │   └── index.html
 │   └── src/
-│       ├── App.jsx                 # Competition selector, per-league themes,
-│       │                             sticky header/nav, WebSocket indicator
-│       ├── index.js
+│       ├── App.jsx
 │       ├── hooks/
-│       │   ├── usePoll.js
-│       │   ├── useWebSocket.js     # scores/standings push (/ws)
-│       │   ├── useChatWebSocket.js # streamed chat push (/ws/chat)
+│       │   ├── useWebSocket.js
+│       │   ├── useChatWebSocket.js
 │       │   ├── useNotifications.js
 │       │   ├── useSubscriptions.js
 │       │   └── useGameWatcher.js
 │       └── components/
-│           ├── ScoresTab.jsx       # date-grouped (UTC-correct), auto-scroll to Today
-│           ├── StandingsTab.jsx    # table-based layout, club + World Cup group grid
+│           ├── ScoresTab.jsx
+│           ├── StandingsTab.jsx
+│           ├── BracketTab.jsx
 │           ├── MatchesTab.jsx
 │           ├── PipelineTab.jsx
-│           └── ChatTab.jsx         # streamed AI chat + inline Recharts charts
+│           └── ChatTab.jsx
+├── infra/                          # AWS CDK (Python)
+│   ├── app.py
+│   ├── network_stack.py
+│   ├── data_stack.py
+│   ├── msk_stack.py
+│   ├── compute_stack.py
+│   ├── edge_stack.py
+│   └── monitoring_stack.py
 ├── checkpoints/
 ├── archive/
 └── README.md
@@ -261,34 +303,30 @@ scorestream/
 
 ---
 
-## Setup
+## Local Setup
 
 ### Prerequisites
 - Docker and Docker Compose
-- Anthropic API key (for chat feature)
+- Anthropic API key
 
 ### Environment
 
-Create a `.env` file in the project root:
+Create `.env` in the project root:
 
 ```bash
 ANTHROPIC_API_KEY=your_key_here
 DATABASE_URL=postgresql://admin:password@postgres:5432/scorestream
 ALLOWED_ORIGINS=http://localhost:3000
-FOOTBALL_DATA_API_KEY=your_key_here  # optional, for historical backfill only
+FOOTBALL_DATA_API_KEY=your_key_here  # optional, backfill only
 ```
 
-In `docker-compose.yml`, the frontend needs two distinct WebSocket URLs since chat and live scores use separate connections:
+`docker-compose.yml` frontend environment:
 
 ```yaml
-frontend:
-    environment:
-      REACT_APP_API_URL:      http://localhost:8000
-      REACT_APP_WS_URL:       ws://localhost:8000/ws
-      REACT_APP_CHAT_WS_URL:  ws://localhost:8000/ws/chat
+REACT_APP_API_URL:      http://localhost:8000
+REACT_APP_WS_URL:       ws://localhost:8000/ws
+REACT_APP_CHAT_WS_URL:  ws://localhost:8000/ws/chat
 ```
-
-**Note:** Default PostgreSQL credentials in `docker-compose.yml` are intentional for local development. Never use these in production.
 
 ### Start
 
@@ -296,9 +334,7 @@ frontend:
 docker compose up --build
 ```
 
-Open the dashboard at `http://localhost:3000`.
-
-The Pipeline Health tab is the fastest way to verify all components are healthy after startup.
+Dashboard at `http://localhost:3000`. Check Pipeline Health to verify all components.
 
 ### Restart safely
 
@@ -306,44 +342,86 @@ The Pipeline Health tab is the fastest way to verify all components are healthy 
 ./restart.sh
 ```
 
-Clears Spark checkpoints (including hidden metadata files, which a plain `rm -rf *` misses on macOS) and restarts all services cleanly.
+Clears Spark checkpoints (including hidden files) and restarts all services.
 
-### Backfill historical data (optional)
+### Backfill historical data
 
 ```bash
 python backfill_historical.py
 ```
 
-Populates the full season's games for all 5 club leagues using football-data.org. Requires `FOOTBALL_DATA_API_KEY` in `.env`.
+---
+
+## AWS Setup
+
+### Prerequisites
+- AWS account and CLI configured
+- Node (for CDK CLI): `npm install -g aws-cdk`
+- CDK bootstrapped: `cdk bootstrap aws://ACCOUNT_ID/us-east-1`
+
+### Deploy
+
+```bash
+cd infra
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Build and push container images to ECR first
+# (see infra/README.md for image build commands)
+
+cdk deploy --all
+```
+
+### Secrets
+
+After deploy, set secret values:
+
+```bash
+aws secretsmanager put-secret-value \
+    --secret-id "scorestream/anthropic-api-key" \
+    --secret-string "your-key"
+
+aws secretsmanager put-secret-value \
+    --secret-id "scorestream/football-data-api-key" \
+    --secret-string "your-key"
+```
+
+RDS credentials are generated and managed automatically by RDS.
+
+### Tear down
+
+```bash
+cdk destroy --all
+```
 
 ---
 
 ## Engineering Challenges
 
-**Real-time clock interpolation** — ESPN's public API updates its clock roughly every 60 seconds. The match detail view interpolates between server updates using a `setInterval` ticker, resetting to the confirmed server value on each poll, with separate state for the display clock (ticks every second) and the progress bar position (updates only on confirmed data) to avoid the bar racing ahead of the actual match state.
+**Real-time clock interpolation** — ESPN updates its match clock roughly every 60 seconds. The match detail view interpolates between updates using `setInterval`, resetting on each confirmed server value, with separate state for the display clock and the progress bar to avoid the bar racing ahead of actual match time.
 
-**Goal correction handling** — ESPN periodically refines published goal data after the fact: refining a goal's type (`"Goal"` → `"Goal - Header"`), reassigning which player is credited (notably for own-goal corrections), and occasionally retracting a goal entirely (VAR overturns). A unique constraint on `(game_id, team_id, seconds)` combined with a delete-then-upsert pattern in Spark — deleting any goal no longer present in ESPN's current payload before re-inserting current goals — means all three correction types resolve cleanly without manual cleanup or duplicate rows.
+**Goal correction handling** — ESPN refines published goal data after the fact: changing goal type, reassigning scorer credit, or retracting goals via VAR. A unique constraint on `(game_id, team_id, seconds)` combined with delete-then-upsert in Spark handles all three cases. Penalty shootout kicks are filtered using ESPN's `shootout` flag with a defensive fallback on clock value (≥7200s in STATUS_FINAL_PEN games) since the flag is sometimes absent on late-corrected kicks.
 
-**UTC-correct date grouping** — Grouping live scores by calendar day initially misplaced late-evening matches (9-10pm local kickoffs land after midnight UTC) into the wrong day's section. The fix normalizes every timestamp to a plain `YYYY-MM-DD` UTC date string via `toISOString().slice(0, 10)` before comparison, sidestepping locale-dependent `Date` parsing inconsistencies entirely, combined with switching the `start_time` column to `TIMESTAMPTZ` so PostgreSQL and JavaScript agree on what a timestamp actually represents.
+**UTC-correct date grouping** — Late-evening kickoffs (9-10pm EDT) cross midnight UTC and land on the next calendar day. All date grouping uses Eastern Time via `toLocaleDateString('en-US', { timeZone: 'America/New_York' })`, and the backend window filter uses PostgreSQL's AT TIME ZONE conversion to anchor boundaries to Eastern midnight rather than UTC midnight.
 
-**Multi-competition pipeline** — Extending from a single EPL feed to six competitions (five club leagues plus the World Cup) required generalizing every layer: the producer loops over a `LEAGUES` dict, Kafka topics were renamed from `epl.*` to `sports.*`, and `league` was threaded through every table. The standings table gained `group_name`, `note`, `note_color`, and `logo_url` to support World Cup group-stage display, plus a `season` column with the primary key extended to `(team_id, league, season)` so relegated/dropped teams are automatically removed each refresh cycle rather than persisting as stale rows across season boundaries.
+**World Cup bracket** — ESPN creates next-round fixtures with placeholder team names ("Round of 32 8 Winner") before feeders are resolved. A hybrid linkage strategy uses winner-matching for resolved games and placeholder-name parsing for unresolved ones, so bracket cards are positioned correctly from the moment fixtures are scheduled. Fixed-slot vertical spacing (BASE_SLOT × 2^roundIndex) ensures alignment holds through the full bracket. SVG connector lines are computed from the same slot constants rather than DOM measurement, so positions are exact without layout queries.
 
-**Streamed AI chat over WebSocket** — The original `/chat` REST endpoint required the full multi-step Claude pipeline (SQL generation, query execution, chart decision, answer formatting) to complete before any response reached the user. Moving the final answer-formatting step onto a dedicated `/ws/chat` WebSocket endpoint and using Claude's streaming API (`messages.stream()` with `stream.text_stream`) lets the response render token-by-token as it's generated, while the upstream steps (which must complete sequentially regardless) still run synchronously before streaming begins. This required a separate WebSocket connection and environment variable from the existing live-scores `/ws` socket, since the frontend's two real-time hooks (`useWebSocket` and `useChatWebSocket`) would otherwise silently share — and collide on — the same connection URL.
+**Multi-competition pipeline** — Extending from EPL to six competitions required generalizing every layer: LEAGUES dict in the producer, renamed Kafka topics (epl.* → sports.*), league column throughout the schema, group_name/note/note_color/logo_url on standings for World Cup groups, round column on games for knockout stage, and shootout_home/shootout_away for penalty results.
 
-**Text-to-SQL with derived-category awareness** — A two-step Claude pipeline converts natural language into PostgreSQL queries, but several real football questions ("open play vs penalty vs own goal", "did anyone score at all") map to *derived* values rather than stored columns. The schema documentation and example queries explicitly spell out how to compute these (`CASE WHEN own_goal THEN ... WHEN penalty_goal THEN ... ELSE 'Open Play' END`, and steering toward `COUNT(*)` so a zero-result answer is distinguishable from a query that found nothing at all) — without this, Claude correctly but unhelpfully reported the data as "unavailable."
+**Streamed AI chat** — Moving from a blocking HTTP POST to a WebSocket-streamed response required structuring the pipeline so SQL generation, query execution, and chart detection run synchronously first, then the answer-formatting step streams token-by-token. Two separate WebSocket connections (useWebSocket for scores, useChatWebSocket for chat) use distinct environment variables to prevent the silent URL-collision bug where both hooks read the same env var and connect to the wrong endpoint.
 
-**Historical data backfill across mismatched ID systems** — ESPN's public API only retains ~3 weeks of scoreboard history. Football-data.org fills the gap for full-season historical data, but its team IDs are a completely separate numbering system from ESPN's. A manually curated mapping of 96+ teams (cross-referenced by querying ESPN's live scoreboard across a 30-day window to capture confirmed IDs) ensures historical games display the same logos as live ones, avoiding the broken/mismatched-team-logo bugs that a naive ID pass-through produced.
+**Text-to-SQL with derived-category awareness** — Several football questions map to derived values: "open play" is `own_goal = false AND penalty_goal = false`, zero goals is a COUNT of 0 not an empty result set. Schema documentation and example queries explicitly spell out these derivations so Claude doesn't report available data as missing.
+
+**AWS architecture decisions** — EventBridge-scheduled Fargate tasks replace MWAA (managed Airflow) as the batch layer — the three scheduled jobs run for seconds every 15-30 minutes, making MWAA's $354/month minimum unjustifiable. The same Airflow DAG logic runs as standalone Python scripts selected by a SCHEDULER_JOB environment variable at container startup. MSK with IAM authentication replaces local Kafka — no credential management beyond the task role, and the aws-msk-iam-sasl-signer library generates short-lived tokens automatically from the Fargate task's IAM role. Glue streaming with S3 checkpoints replaces the local Spark container, eliminating cluster management while keeping the same PySpark Structured Streaming API.
+
+**Historical data backfill** — ESPN retains only ~3 weeks of scoreboard history. Football-data.org fills the gap for full-season data, but uses a completely different team ID numbering system. A manually curated mapping of 96+ teams cross-referenced by querying ESPN's live scoreboard across 30 days ensures historical games display correct logos regardless of which source populated them.
 
 ---
 
-## What's Next (Phase 5)
+## What's Next
 
-- Replace local Kafka with AWS MSK
-- Replace local Spark with AWS Glue managed jobs
-- Replace local Parquet storage with S3
-- Deploy FastAPI on EC2 behind an Application Load Balancer
-- Deploy frontend on S3 + CloudFront
-- Add CloudWatch monitoring and alerting
-- Migrate the legacy `/chat` REST endpoint fully to `/ws/chat`, removing the non-streamed code path
-- Add historical analytics using archived Parquet data via DuckDB
-- Add assist tracking once a reliable ESPN field is identified
+- Stream chat responses immediately on SQL completion rather than waiting for chart detection
+- Historical analytics tab using archived Parquet data via DuckDB
+- Assist tracking once a reliable ESPN field is confirmed
+- Production hardening: Multi-AZ RDS, MSK replication factor 3, WAF on ALB
+- CI/CD pipeline: GitHub Actions building and pushing images on merge, CDK deploy on tag

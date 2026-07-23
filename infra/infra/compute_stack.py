@@ -30,6 +30,7 @@ class ComputeStack(Stack):
             "ScoreStreamCluster",
             cluster_name="scorestream",
             vpc=network.vpc,
+            container_insights=True
         )
 
         producer_task_role = iam.Role(
@@ -316,6 +317,15 @@ class ComputeStack(Stack):
             )
         )
 
+        api_task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "cloudwatch:DescribeAlarms",
+                ],
+                resources=["*"]
+            )
+        )
+
         api_execution_role = iam.Role(
             self,
             "ApiExecutionRole",
@@ -352,7 +362,7 @@ class ComputeStack(Stack):
 
         api_task.add_container(
             "ApiContainer",
-            image=ecs.ContainerImage.from_ecr_repository(api_repo, tag="v3"),
+            image=ecs.ContainerImage.from_ecr_repository(api_repo, tag="v2"),
             port_mappings=[ecs.PortMapping(container_port=8000, protocol=ecs.Protocol.TCP)],
             environment={
                 "AWS_DEFAULT_REGION": "us-east-1",
