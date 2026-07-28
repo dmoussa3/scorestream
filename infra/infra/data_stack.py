@@ -6,6 +6,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_elasticache as elasticache,
     RemovalPolicy,
+    aws_secretsmanager as secretsmanager,
     Duration,
 )
 from constructs import Construct
@@ -46,10 +47,10 @@ class DataStack(Stack):
             multi_az=False,
             allocated_storage=20,
             max_allocated_storage=100,
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.RETAIN,
             storage_encrypted=True,
             backup_retention=Duration.days(0),
-            deletion_protection=False,
+            deletion_protection=True,
             publicly_accessible=False
         )
 

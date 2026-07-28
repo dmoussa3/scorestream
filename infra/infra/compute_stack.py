@@ -9,6 +9,7 @@ from aws_cdk import (
     aws_elasticloadbalancingv2 as elbv2,
     aws_certificatemanager as acm,
     aws_scheduler as scheduler,
+    aws_s3_deployment as s3deploy,
     aws_scheduler_targets as targets,
     Duration,
     RemovalPolicy,
@@ -170,6 +171,14 @@ class ComputeStack(Stack):
                 ],
                 resources=["*"]
             )
+        )
+
+        s3deploy.BucketDeployment(
+            self,
+            "GlueScriptsDeployment",
+            sources=[s3deploy.Source.asset("../spark/", exclude=["**", "!streaming_aws.py"])],
+            destination_bucket=data.glue_bucket,
+            destination_key_prefix="scripts",
         )
 
         glue_role = iam.Role(
@@ -362,13 +371,13 @@ class ComputeStack(Stack):
 
         api_task.add_container(
             "ApiContainer",
-            image=ecs.ContainerImage.from_ecr_repository(api_repo, tag="v2"),
+            image=ecs.ContainerImage.from_ecr_repository(api_repo, tag="latest"),
             port_mappings=[ecs.PortMapping(container_port=8000, protocol=ecs.Protocol.TCP)],
             environment={
                 "AWS_DEFAULT_REGION": "us-east-1",
                 "REDIS_HOST": data.redis_endpoint,
                 "REDIS_PORT": data.redis_port,
-                "ALLOWED_ORIGINS": "https://d2xnc8lcocasgt.cloudfront.net/"
+                "ALLOWED_ORIGINS": "https://d1xoiixjmue879.cloudfront.net/"
             },
             secrets={
                 "DB_HOST": ecs.Secret.from_secrets_manager(data.secret_rds, field="host"),

@@ -173,18 +173,16 @@ class NetworkStack(Stack):
             description="Glue self-reference required for VPC job",
         )
 
-        self.secret_anthropic = secretsmanager.Secret(
+        self.secret_anthropic = secretsmanager.Secret.from_secret_name_v2(
             self,
             "AnthropicApiKey",
             secret_name="scorestream/anthropic_api_key",
-            description="Anthropic API Key for LLM access",
         )
 
-        self.secret_football_data = secretsmanager.Secret(
+        self.secret_football_data = secretsmanager.Secret.from_secret_name_v2(
             self,
             "FootballDataApiKey",
-            secret_name="scorestream/football_data_api_key",
-            description="football-data.org API Key for historical football data backfill",
+            secret_name="scorestream/football_data_api_key"
         )
 
         # IAM Roles — defined alongside their services in compute_stack.py
