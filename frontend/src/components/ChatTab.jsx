@@ -226,7 +226,7 @@ function ChatChart({ chart, theme }) {
 export default function ChatTab({ theme, isConnected, sendQuestion }) {
     const [messages, setMessages] = useState([{
         role: "assistant",
-        content: "Hi! I'm your Football Assistant. Ask me anything about live scores, goal scorers, or current standings in the Top 5 European Leagues and the 2026 FIFA World Cup, and I'll do my best to help you out!"
+        content: "Hi! I'm your Football Assistant. Ask me anything about live scores, goal scorers, or current standings in the Top 5 European Leagues and the MLS (Major League Soccer), and I'll do my best to help you out!"
     }]);
 
     const [input, setInput] = useState('');

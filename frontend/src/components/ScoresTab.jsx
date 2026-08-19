@@ -37,7 +37,7 @@ export default function ScoresTab({ onSelectGame, lastUpdate, league, theme }) {
         try {
             const params = new URLSearchParams()
             if (league) params.append('league', league)
-            params.append('window', 3) // Fetch games within a week from today
+            params.append('window', 4) // Fetch games within a week from today
             const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/games?${params}`)
             const data = await res.json()
             setGames(data)

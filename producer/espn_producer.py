@@ -10,6 +10,7 @@ import signal
 import sys
 from datetime import datetime, timedelta, timezone
 import psycopg2
+from curl_cffi import requests as cffi_requests
 
 import requests
 from kafka import KafkaProducer
@@ -35,7 +36,7 @@ LEAGUES = {
     "seriea": "ita.1",
     "bundesliga": "ger.1",
     "ligue1": "fra.1",
-    "worldcup": "fifa.world"
+    "mls": "usa.1"
 }
 
 ROUNDS = {
@@ -63,6 +64,8 @@ class MSKTokenProvider:
 
 def get_db():
     url = os.getenv("DATABASE_URL")
+
+    ## If DATABASE_URL is not set, construct it from individual environment variables (local development only)
     if not url:
         host     = os.getenv("DB_HOST", "localhost")
         port     = os.getenv("DB_PORT", "5432")
@@ -129,18 +132,41 @@ def fetch_scoreboard(league: str) -> list[dict]:
     """Return list of raw game objects from ESPN scoreboard."""
     events = []
 
-    for day_offset in [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7]:  # fetch yesterday's and tomorrow's games to catch late updates
+    proxy_url = f"http://{os.getenv('PROXY_USERNAME')}:{os.getenv('PROXY_PASSWORD')}@{os.getenv('PROXY_HOST', 'p.webshare.io')}:{os.getenv('PROXY_PORT', '80')}"
+
+    for day_offset in [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7]:
         date_str = (datetime.now() + timedelta(days=day_offset)).strftime("%Y%m%d")
         url = f"{ESPN_BASE}/{league}/scoreboard?dates={date_str}"
 
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=10)
-            resp.raise_for_status()
-            day_events = resp.json().get("events", [])
-            events.extend(day_events)
-        except Exception as e:
-            print(f"[producer] Scoreboard fetch error for {league} for {date_str}: {e}")
-    
+        for attempt in range(3):
+            try:
+                resp = cffi_requests.get(
+                    url,
+                    headers=HEADERS,
+                    proxies={"http": proxy_url, "https": proxy_url},
+                    impersonate="chrome120",
+                    timeout=15,
+                )
+
+                if resp.status_code == 403:
+                    wait = 2 ** attempt
+                    print(f"[producer] 403 for {league} {date_str} — retrying in {wait}s (attempt {attempt + 1}/3)")
+                    time.sleep(wait)
+                    continue
+
+                resp.raise_for_status()
+                day_events = resp.json().get("events", [])
+                events.extend(day_events)
+                break
+
+            except Exception as e:
+                if attempt == 2:
+                    print(f"[producer] Scoreboard fetch error for {league} for {date_str}: {e}")
+                else:
+                    time.sleep(2 ** attempt)
+
+        time.sleep(0.3)
+
     seen = set()
     unique_events = []
     for event in events:
@@ -152,22 +178,43 @@ def fetch_scoreboard(league: str) -> list[dict]:
 
 def fetch_standings(league: str) -> list[dict]:
     """Return raw standings entries from ESPN."""
-    try:
-        url = f"{ESPN_STANDINGS}/{league}/standings"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        resp.raise_for_status()
-        entries = []
+    proxy_url = f"http://{os.getenv('PROXY_USERNAME')}:{os.getenv('PROXY_PASSWORD')}@{os.getenv('PROXY_HOST', 'p.webshare.io')}:{os.getenv('PROXY_PORT', '80')}"
 
-        for group in resp.json().get("children", []):
-            name = group.get("name", "")
-            for entry in group.get("standings", {}).get("entries", []):
-                entry["_group_name"] = name  # Add group name to each entry for context
-                entries.append(entry)
+    for attempt in range(3):
+        try:
+            url = f"{ESPN_STANDINGS}/{league}/standings"
+            resp = cffi_requests.get(
+                url,
+                headers=HEADERS,
+                proxies={"http": proxy_url, "https": proxy_url},
+                impersonate="chrome120",
+                timeout=15,
+            )
 
-        return entries
-    except Exception as e:
-        print(f"[producer] Standings fetch error: {e}")
-        return []
+            if resp.status_code == 403:
+                wait = 2 ** attempt
+                print(f"[producer] 403 for standings {league} — retrying in {wait}s (attempt {attempt + 1}/3)")
+                time.sleep(wait)
+                continue
+
+            resp.raise_for_status()
+            entries = []
+
+            for group in resp.json().get("children", []):
+                name = group.get("name", "")
+                for entry in group.get("standings", {}).get("entries", []):
+                    entry["_group_name"] = name
+                    entries.append(entry)
+
+            return entries
+
+        except Exception as e:
+            if attempt == 2:
+                print(f"[producer] Standings fetch error for {league}: {e}")
+            else:
+                time.sleep(2 ** attempt)
+
+    return []
 
 def parse_round(event: dict, comp: dict) -> str | None:
     """Extract a clean round name from a raw ESPN event object."""
@@ -346,6 +393,7 @@ def run():
                     )
                     published_games += 1
             print(f"  [{league_name}] {published_games} games published")
+            time.sleep(0.5)
 
         # ── Standings (every 3 polls to reduce API load) ──
         if poll_count % 3 == 0:

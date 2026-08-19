@@ -8,6 +8,7 @@ from aws_cdk import (
     RemovalPolicy,
     aws_secretsmanager as secretsmanager,
     Duration,
+    SecretValue
 )
 from constructs import Construct
 from infra.network_stack import NetworkStack
@@ -24,37 +25,30 @@ class DataStack(Stack):
             description="ScoreStream RDS Subnet group",
             vpc=network.vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.RETAIN
         )
 
-        self.rds_instance = rds.DatabaseInstance(
+        # On first deploy, use rds.DatabaseInstance(...) to create fresh
+        # On subsequent deploys after manual retention, import existing instance:
+        # instance_endpoint_address=os.environ.get('RDS_ENDPOINT', ''),
+        # instance_resource_id=os.environ.get('RDS_RESOURCE_ID', ''),
+
+        self.rds_instance = rds.DatabaseInstance.from_database_instance_attributes(
             self,
             "ScoreStreamRDS",
-            engine=rds.DatabaseInstanceEngine.postgres(
-                version=rds.PostgresEngineVersion.VER_15
-            ),
-            instance_type=ec2.InstanceType.of(
-                ec2.InstanceClass.BURSTABLE3,
-                ec2.InstanceSize.MICRO
-            ),
-            vpc=network.vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
-            subnet_group=rds_subnet_group,
-            security_groups=[network.sg_rds],
-            database_name="scorestream",
             instance_identifier="scorestream-rds",
-            credentials=rds.Credentials.from_generated_secret(username="scorestream", secret_name="scorestream/rds-credentials"),
-            multi_az=False,
-            allocated_storage=20,
-            max_allocated_storage=100,
-            removal_policy=RemovalPolicy.RETAIN,
-            storage_encrypted=True,
-            backup_retention=Duration.days(0),
-            deletion_protection=True,
-            publicly_accessible=False
+            instance_endpoint_address="scorestream-rds.csx0y2syktme.us-east-1.rds.amazonaws.com",
+            port=5432,
+            security_groups=[network.sg_rds],
+            instance_resource_id="db-JTPYKPYBA7FTSQYCPTXJTJM4IA",
+            engine=rds.DatabaseInstanceEngine.postgres(version=rds.PostgresEngineVersion.VER_15)
         )
 
-        self.secret_rds = self.rds_instance.secret
+        self.secret_rds = secretsmanager.Secret.from_secret_name_v2(
+            self,
+            "RDSSecret",
+            secret_name="scorestream/rds-credentials"
+        )
 
         redis_subnet_group = elasticache.CfnSubnetGroup(
             self,
@@ -84,7 +78,7 @@ class DataStack(Stack):
         self.rds_endpoint = self.rds_instance.db_instance_endpoint_address
         self.rds_port = self.rds_instance.db_instance_endpoint_port
 
-        ## BASTION GROUP - TEMPORARY, REMOVE WHEN NOT NEEDED
+        ## BASTION GROUP - TEMPORARY, COMMENT OUT WHEN NOT NEEDED
 
         # self.bastion = ec2.BastionHostLinux(
         #     self, "Bastion",
@@ -125,6 +119,7 @@ class DataStack(Stack):
     def grant_secrets_read(self, role):
         self.network.secret_anthropic.grant_read(role)
         self.network.secret_football_data.grant_read(role)
+        self.network.secret_proxy.grant_read(role)
         self.secret_rds.grant_read(role)
 
     def grant_glue_bucket_access(self, role):

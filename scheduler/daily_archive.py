@@ -4,7 +4,6 @@ import pandas as pd
 import os
 import json
 import boto3
-import psycopg2
 import io
 
 def get_rds_credentials():
@@ -34,7 +33,7 @@ def archive_games(conn, s3_client, bucket, date_str):
     print(f"Archived {len(df)} games to s3://{bucket}/{key}")
 
 
-def archive_goals(conn, date_str, s3_client, bucket):
+def archive_goals(conn, s3_client, bucket, date_str):
     df = pd.read_sql("SELECT * FROM goals", conn)
 
     buffer = io.BytesIO()
@@ -46,7 +45,7 @@ def archive_goals(conn, date_str, s3_client, bucket):
 
     print(f"Archived {len(df)} goals to s3://{bucket}/{key}")
 
-def archive_standings(conn, date_str, s3_client, bucket):
+def archive_standings(conn, s3_client, bucket, date_str):
     df = pd.read_sql("SELECT * FROM standings", conn)
 
     buffer = io.BytesIO()
@@ -59,7 +58,7 @@ def archive_standings(conn, date_str, s3_client, bucket):
     print(f"Archived {len(df)} standings to s3://{bucket}/{key}")
 
 def main():
-    date_str = datetime.now().isoformat()
+    date_str = datetime.now().strftime("%Y-%m-%d")
     bucket = os.environ['ARCHIVE_BUCKET']
 
     print('[archive] Starting archive process for date:', date_str)
@@ -70,8 +69,8 @@ def main():
 
     try:
         archive_games(conn, s3_client, bucket, date_str)
-        archive_goals(conn, date_str, s3_client, bucket)
-        archive_standings(conn, date_str, s3_client, bucket)
+        archive_goals(conn, s3_client, bucket, date_str)
+        archive_standings(conn, s3_client, bucket, date_str)
         print('[archive] Archive process completed successfully for date:', date_str)
     except Exception as e:
         print('[archive] Error during archive process for date:', date_str)

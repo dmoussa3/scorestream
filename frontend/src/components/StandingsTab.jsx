@@ -3,8 +3,12 @@ import { useCallback, useEffect, useState, useRef } from "react";
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000'
 
 const rowColors = (position, theme, league) => {
-    if (league === 'worldcup') {
-        if (position === 2) return { borderBottom: '2px solid #81D6AC' }
+    if (league === 'mls') {
+        if (position <= 9) return { 
+            borderBottom: '1px solid #81D6AC',
+            backgroundColor: 'rgba(23, 37, 84, 0.4)',
+            borderLeft: '4px solid #81D6AC' 
+        }
         return { borderBottom: `1px solid ${theme?.border}` }
     }
     if (position <= 4) return {
@@ -12,37 +16,17 @@ const rowColors = (position, theme, league) => {
         backgroundColor: 'rgba(23, 37, 84, 0.4)',
         borderLeft: '4px solid #3b82f6'
     }
-    if ((league === 'epl' || league === 'laliga') && position === 5) return {
-        borderBottom: '1px solid #3b82f6',
+    if (position === 5) return {
+        borderBottom: '1px solid #f97316',
         backgroundColor: 'rgba(23, 37, 84, 0.4)',
-        borderLeft: '4px solid #3b82f6'
+        borderLeft: '4px solid #f97316'
     }
     if ((league === 'ligue1' || league === 'bundesliga' || league === 'seriea') && position === 5) return {
         borderBottom: '1px solid #f97316',
         backgroundColor: 'rgba(67, 20, 7, 0.4)',
         borderLeft: '4px solid #f97316'
     }
-    if (position === 6 && league === 'ligue1') return {
-        borderBottom: '1px solid #22c55e',
-        backgroundColor: 'rgba(5, 46, 22, 0.4)',
-        borderLeft: '4px solid #22c55e'
-    }
-    if (position === 6 && (league === 'bundesliga' || league === 'seriea' || league === 'laliga' || league === 'epl')) return {
-        borderBottom: '1px solid #f97316',
-        backgroundColor: 'rgba(67, 20, 7, 0.4)',
-        borderLeft: '4px solid #f97316'
-    }
-    if (position === 7 && (league === 'laliga' || league === 'seriea' || league === 'bundesliga')) return {
-        borderBottom: '1px solid #22c55e',
-        backgroundColor: 'rgba(5, 46, 22, 0.4)',
-        borderLeft: '4px solid #22c55e'
-    }
-    if (position === 7 && league === 'epl') return {
-        borderBottom: '1px solid #f97316',
-        backgroundColor: 'rgba(67, 20, 7, 0.4)',
-        borderLeft: '4px solid #f97316'
-    }
-    if (position === 8 && league === 'epl') return {
+    if (position === 6) return {
         borderBottom: '1px solid #22c55e',
         backgroundColor: 'rgba(5, 46, 22, 0.4)',
         borderLeft: '4px solid #22c55e'
@@ -75,14 +59,14 @@ const rowColors = (position, theme, league) => {
 }
 
 // Defined outside component so it doesn't remount on every render
-function TeamLogo({ teamId, teamName, logoUrl, size = 7, isNational = false }) {
+function TeamLogo({ teamId, teamName, logoUrl, size = 7}) {
     const [imgSrc, setImgSrc] = useState(
         logoUrl || `https://a.espncdn.com/i/teamlogos/soccer/500/${teamId}.png`
     )
     const attemptedFallback = useRef(false)
 
     const handleError = () => {
-        if (attemptedFallback.current || !isNational) {
+        if (attemptedFallback.current) {
             setImgSrc(null)
             return
         }
@@ -147,7 +131,6 @@ function StandingsTable({ teams, theme, league }) {
                                         teamId={team.team_id}
                                         teamName={team.team_name}
                                         logoUrl={team.logo_url}
-                                        isNational={league === 'worldcup'}
                                     />
                                     <div className="flex flex-col">
                                         <span
@@ -156,14 +139,12 @@ function StandingsTable({ teams, theme, league }) {
                                         >
                                             {team.team_name}
                                         </span>
-                                        {league === 'worldcup' && team.note && (
                                             <span
                                                 className="text-xs opacity-80"
                                                 style={{ color: team.note_color || '#ffffff' }}
                                             >
                                                 {team.note}
                                             </span>
-                                        )}
                                     </div>
                                 </div>
                             </td>
@@ -211,6 +192,9 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
     const [loading, setLoading]     = useState(true)
     const [error, setError]         = useState(null)
 
+    const isEurope = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1'].includes(league)
+    const isMls = league === 'mls'
+
     const fetchStandings = useCallback(async () => {
         try {
             const response = await fetch(`${API}/standings?league=${league}`)
@@ -238,46 +222,71 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
     if (error)   return <div className="p-4 text-red-400">Error: {error}</div>
     if (!standings?.length) return <div className="p-4" style={{ color: theme?.accent }}>No standings data available.</div>
 
-    const isWorldCup = league === 'worldcup'
-    
-    const grouped = isWorldCup
-        ? standings.reduce((acc, team) => {
-            const group = team.group_name || 'Unknown Group'
-            if (!acc[group]) acc[group] = []
-            acc[group].push(team)
-            return acc
-          }, {})
-        : null
+    const easternConference = isMls
+        ? [...standings]
+            .filter(t => t.group_name === 'Eastern Conference')
+            .sort((a, b) => a.rank - b.rank)
+        : []
+
+    const westernConference = isMls
+        ? [...standings]
+            .filter(t => t.group_name === 'Western Conference')
+            .sort((a, b) => a.rank - b.rank)
+        : []
 
     return (
         <div className="max-w-6xl mx-auto">
 
-            {/* World Cup — grid of group tables */}
-            {isWorldCup ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {Object.entries(grouped)
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([groupName, teams]) => (
-                            <div
-                                key={groupName}
-                                style={{ backgroundColor: theme?.secondary, borderColor: theme?.border }}
-                                className="border rounded-lg overflow-hidden"
-                            >
-                                <div
-                                    style={{ backgroundColor: theme?.primary, borderColor: theme?.border }}
-                                    className="px-6 py-3 border-b"
+            {/* MLS — two conference tables stacked */}
+            {isMls ? (
+                <div className="flex flex-col gap-8">
+                    {[
+                        { label: 'Eastern Conference', teams: easternConference },
+                        { label: 'Western Conference', teams: westernConference },
+                    ].map(({ label, teams }) => (
+                        <div key={label}>
+                            {/* Conference header */}
+                            <div className="flex items-center gap-3 mb-3">
+                                <h3
+                                    className="text-sm font-bold uppercase tracking-widest"
+                                    style={{ color: theme?.accent }}
                                 >
-                                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                                        {groupName}
-                                    </h3>
-                                </div>
-                                <StandingsTable teams={teams} theme={theme} league={league} />
+                                    {label}
+                                </h3>
+                                <div
+                                    className="flex-1 h-px opacity-20"
+                                    style={{ backgroundColor: theme?.accent }}
+                                />
                             </div>
-                        ))
-                    }
+
+                            {/* Table */}
+                            <div className="flex gap-6 items-start">
+                                <div
+                                    style={{ backgroundColor: theme?.secondary, borderColor: theme?.border }}
+                                    className="flex-1 rounded-lg border overflow-hidden"
+                                >
+                                    <StandingsTable teams={teams} theme={theme} league={league} />
+                                </div>
+
+                                {/* MLS legend */}
+                                <div className="flex-shrink-0 flex flex-col gap-3 pt-2 text-xs text-white ml-4">
+                                    <span className="font-semibold uppercase tracking-wider text-white mb-1">
+                                        Zones
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-8 h-1 inline-block rounded-full" style={{ backgroundColor: '#81D6AC' }} />
+                                        <span className="text-xs" style={{ color: theme?.text }}>
+                                            MLS Cup Playoffs (1-9)
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
+
             ) : (
-                /* Club leagues — table + legend side by side */
+                /* European club leagues — single table + legend */
                 <div className="flex gap-6 items-start">
                     <div
                         style={{ backgroundColor: theme?.secondary, borderColor: theme?.border }}
@@ -286,41 +295,47 @@ export default function StandingsTab({ lastUpdate, league = 'epl', theme }) {
                         <StandingsTable teams={standings} theme={theme} league={league} />
                     </div>
 
-                    {/* Legend — unchanged from your current file */}
+                    {/* Europe legend */}
                     <div className="flex-shrink-0 flex flex-col gap-3 pt-2 text-xs text-white ml-4">
                         <span className="font-semibold uppercase tracking-wider text-white mb-1">
                             Zones
                         </span>
-                        <span className="flex items-center gap-2">
-                            <span className="w-8 h-1 bg-blue-500 inline-block rounded-full" />
-                            {league === 'epl' || league === 'laliga'
-                                ? 'UEFA Champions League (1-5)'
-                                : 'UEFA Champions League (1-4)'}
-                        </span>
-                        <span className="flex items-center gap-2">
-                            <span className="w-8 h-1 bg-orange-500 inline-block rounded-full" />
-                            {league === 'bundesliga' || league === 'seriea'
-                                ? 'UEFA Europa League (5-6)'
-                                : league === 'laliga'
-                                ? 'UEFA Europa League (6)'
-                                : league === 'epl'
-                                ? 'UEFA Europa League (6-7)'
-                                : 'UEFA Europa League (5)'}
-                        </span>
-                        <span className="flex items-center gap-2">
-                            <span className="w-8 h-1 bg-green-500 inline-block rounded-full" />
-                            {league === 'ligue1'
-                                ? 'UEFA Conference League (6)'
-                                : league === 'laliga' || league === 'seriea' || league === 'bundesliga'
-                                ? 'UEFA Conference League (7)'
-                                : 'UEFA Conference League (8)'}
-                        </span>
-                        <span className="flex items-center gap-2">
-                            <span className="w-8 h-1 bg-red-500 inline-block rounded-full" />
-                            {league === 'epl' || league === 'laliga' || league === 'seriea'
-                                ? 'Relegation (18-20)'
-                                : 'Relegation (16-18)'}
-                        </span>
+                        {isEurope && (
+                            <div className="flex items-center gap-2">
+                                <span className="w-8 h-1 bg-blue-500 inline-block rounded-full" />
+                                <span className="text-xs opacity-60" style={{ color: theme?.text }}>
+                                    UEFA Champions League (1-4)
+                                </span>
+                            </div>
+                        )}
+                        {isEurope && (
+                            <div className="flex items-center gap-2">
+                                <span className="w-8 h-1 bg-orange-500 inline-block rounded-full" />
+                                <span className="text-xs opacity-60" style={{ color: theme?.text }}>
+                                    UEFA Europa League (5)
+                                </span>
+                            </div>
+                        )}
+                        {isEurope && (
+                            <div className="flex items-center gap-2">
+                                <span className="w-8 h-1 bg-green-500 inline-block rounded-full" />
+                                <span className="text-xs opacity-60" style={{ color: theme?.text }}>
+                                    UEFA Conference League (6)
+                                </span>
+                            </div>
+                        )}
+                        {isEurope && (
+                            <div className="flex items-center gap-2">
+                                <span className="w-8 h-1 bg-red-500 inline-block rounded-full" />
+                                <span className="text-xs opacity-60" style={{ color: theme?.text }}>
+                                    {league === 'epl' || league === 'laliga' || league === 'seriea'
+                                        ? 'Relegation (18-20)'
+                                        : league === 'bundesliga' || league === 'ligue1'
+                                        ? 'Relegation (16-18)'
+                                        : ''}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

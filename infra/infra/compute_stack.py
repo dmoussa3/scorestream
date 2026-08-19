@@ -141,6 +141,10 @@ class ComputeStack(Stack):
                 "DB_USER": ecs.Secret.from_secrets_manager(data.secret_rds, field="username"),
                 "DB_PASSWORD": ecs.Secret.from_secrets_manager(data.secret_rds, field="password"),
                 "DB_NAME": ecs.Secret.from_secrets_manager(data.secret_rds, field="dbname"),
+                "PROXY_USERNAME": ecs.Secret.from_secrets_manager(network.secret_proxy, field="username"),
+                "PROXY_PASSWORD": ecs.Secret.from_secrets_manager(network.secret_proxy, field="password"),
+                "PROXY_HOST": ecs.Secret.from_secrets_manager(network.secret_proxy, field="host"),
+                "PROXY_PORT": ecs.Secret.from_secrets_manager(network.secret_proxy, field="port"),
             },
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="producer",
@@ -291,7 +295,7 @@ class ComputeStack(Stack):
             ),
         )
 
-        alb = elbv2.ApplicationLoadBalancer(
+        self.alb = elbv2.ApplicationLoadBalancer(
             self,
             "ScoreStreamALB",
             vpc=network.vpc,
@@ -301,9 +305,8 @@ class ComputeStack(Stack):
             load_balancer_name="scorestream-alb"
         )
 
-        alb.set_attribute("idle_timeout.timeout_seconds", "4000")
-
-        self.alb_dns_name = alb.load_balancer_dns_name
+        self.alb.set_attribute("idle_timeout.timeout_seconds", "4000")
+        self.alb_dns_name = self.alb.load_balancer_dns_name
 
         api_task_role = iam.Role(
             self,
@@ -393,7 +396,7 @@ class ComputeStack(Stack):
             )
         )
 
-        http_listener = alb.add_listener(
+        http_listener = self.alb.add_listener(
             "HttpListener",
             port=80,
             default_action=elbv2.ListenerAction.fixed_response(

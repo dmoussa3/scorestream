@@ -1,7 +1,5 @@
 from aws_cdk import (
-    # Duration,
     Stack,
-    # aws_sqs as sqs,
     aws_ec2 as ec2,
     aws_secretsmanager as secretsmanager,
 )
@@ -173,6 +171,20 @@ class NetworkStack(Stack):
             description="Glue self-reference required for VPC job",
         )
 
+        self.sg_scheduler = ec2.SecurityGroup(
+            self,
+            "SgScheduler",
+            vpc=self.vpc,
+            description="Scheduler Fargate task security group",
+            allow_all_outbound=True,
+        )
+
+        self.sg_rds.add_ingress_rule(
+            peer=self.sg_scheduler,
+            connection=ec2.Port.tcp(5432),
+            description="PostgreSQL port from Scheduler ECS task",
+        )   
+
         self.secret_anthropic = secretsmanager.Secret.from_secret_name_v2(
             self,
             "AnthropicApiKey",
@@ -183,6 +195,12 @@ class NetworkStack(Stack):
             self,
             "FootballDataApiKey",
             secret_name="scorestream/football_data_api_key"
+        )
+
+        self.secret_proxy = secretsmanager.Secret.from_secret_name_v2(
+            self,
+            "ProxyCredentials",
+            secret_name="scorestream/proxy-credentials"
         )
 
         # IAM Roles — defined alongside their services in compute_stack.py
@@ -201,7 +219,7 @@ class NetworkStack(Stack):
         # - kafka:* on the MSK cluster ARN (consumer group, read topics)
         # - s3:GetObject, s3:PutObject on the checkpoints and archive buckets
         # - ec2:* subset for Glue VPC connectivity (Glue requires specific EC2 permissions)
-        
-        def grant_secret_read(self, role):
-            self.secret_anthropic.grant_read(role)
-            self.secret_football_data.grant_read(role)
+    
+    def grant_secret_read(self, role):
+        self.secret_anthropic.grant_read(role)
+        self.secret_football_data.grant_read(role)

@@ -80,13 +80,11 @@ def get_current_season() -> int:
     # Football seasons start in August
     # Jan-Jun 2026 → season 2025 (2025/26)
     # Jul-Dec 2026 → season 2026 (2026/27)
-    # World Cup 2026 always uses 2026
     if now.month >= 7:
         return now.year
     return now.year - 1
 
 CURRENT_SEASON = get_current_season()
-WORLD_CUP_SEASON = 2026  # World Cup runs entirely within 2026
 LAST_SEASON = CURRENT_SEASON - 1
 
 DB_SCHEMA = f"""
@@ -162,13 +160,17 @@ season_stats (
 
 NOTE: Use season_stats for full-season totals (top scorers, assists, etc.)
 The goals table only contains recent ESPN match events.
-For World Cup season_stats use season = {WORLD_CUP_SEASON}.
 
 Note on leagues:
-- 'worldcup' refers to the 2026 FIFA World Cup
-- World Cup games follow the same schema as club leagues
 - home_team and away_team are national team abbreviations (e.g. 'ENG', 'BRA', 'ARG')
 - home_team_name and away_team_name are full country names (e.g. 'England', 'Brazil')
+- MLS (Major League Soccer) uses league = 'mls' in all tables
+- MLS standings are split by conference — the group_name column contains either 'Eastern Conference' or 'Western Conference'
+- The top 9 teams from each conference qualify for the MLS Cup Playoffs (rank <= 9)
+- There is no relegation in MLS
+- The Supporters' Shield is awarded to the team with the best overall regular season record across both conferences
+- MLS team names use their full official ESPN names (e.g. 'Los Angeles FC', 'Inter Miami CF', 'D.C. United')
+- For conference-specific queries, always include AND group_name = 'Eastern Conference' or AND group_name = 'Western Conference'
 
 Note on goal classification:
 - There is no explicit "open play" flag — it is DERIVED, not stored directly
@@ -473,35 +475,50 @@ AND gm.status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME
 ORDER BY gm.start_time DESC
 LIMIT 1;
 
--- Which World Cup games are today?
-SELECT home_team_name, away_team_name, home_score, away_score, status, start_time
-FROM games
-WHERE league = 'worldcup'
-AND DATE(start_time) = CURRENT_DATE
-ORDER BY start_time ASC;
+-- Who leads the Eastern Conference?
+SELECT team_name, points, wins, draws, losses, goal_diff, matches_played
+FROM standings
+WHERE league = 'mls' AND group_name = 'Eastern Conference'
+ORDER BY points DESC, goal_diff DESC
+LIMIT 1;
 
--- Who has scored at the World Cup?
-SELECT 
-    gl.player_name,
-    COUNT(*) as goals,
-    MAX(CASE 
-        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
-        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
-    END) as country
-FROM goals gl
-JOIN games gm ON gl.game_id = gm.game_id
-WHERE gm.league = 'worldcup'
-AND gl.own_goal = false
-GROUP BY gl.player_name
-ORDER BY goals DESC
-LIMIT 10;
+-- Show me the Western Conference standings
+SELECT rank, team_name, matches_played, wins, draws, losses, goal_diff, points
+FROM standings
+WHERE league = 'mls' AND group_name = 'Western Conference'
+ORDER BY points DESC, goal_diff DESC;
 
--- What were the results in the World Cup group stage?
+-- Which MLS teams are in playoff position?
+SELECT team_name, group_name, points, rank
+FROM standings
+WHERE league = 'mls' AND rank <= 9
+ORDER BY group_name ASC, points DESC;
+
+-- How has Inter Miami been performing?
 SELECT home_team_name, away_team_name, home_score, away_score, start_time
 FROM games
-WHERE league = 'worldcup'
-AND status IN ('STATUS_FULL_TIME', 'STATUS_FINAL')
-ORDER BY start_time ASC;
+WHERE league = 'mls'
+AND (home_team_name ILIKE '%Inter Miami%' OR away_team_name ILIKE '%Inter Miami%')
+AND status IN ('STATUS_FULL_TIME', 'STATUS_FINAL_AET', 'STATUS_FINAL_PEN')
+ORDER BY start_time DESC
+LIMIT 5;
+
+-- Top scorers in MLS this season
+SELECT s.player_name, s.team_name, s.goals, s.assists
+FROM season_stats s
+WHERE s.league = 'mls' AND s.season = {CURRENT_SEASON}
+ORDER BY s.goals DESC
+LIMIT 10;
+
+-- Who scored in the last LA Galaxy game?
+SELECT gl.player_name, gl.goal_type, gl.minute,
+       gm.home_team_name, gm.away_team_name, gm.home_score, gm.away_score
+FROM goals gl
+JOIN games gm ON gl.game_id = gm.game_id
+WHERE gm.league = 'mls'
+AND (gm.home_team_name ILIKE '%LA Galaxy%' OR gm.away_team_name ILIKE '%LA Galaxy%')
+ORDER BY gm.start_time DESC, gl.seconds ASC
+LIMIT 10;
 """
 
 TEAM_ALIASES = """
@@ -546,20 +563,6 @@ Lille → Lille
 Rennes → Stade Rennais
 """
 
-WORLD_CUP_ALIASES = """
-World Cup country name aliases:
-USA, United States → United States
-England → England (not Great Britain)
-Korea → South Korea
-Iran → Iran
-Ivory Coast → Ivory Coast
-Bosnia → Bosnia-Herzegovina
-Czech Republic → Czechia
-Turkey → Türkiye
-Curacao → Curaçao
-Congo → DR Congo
-"""
-
 ALIAS_MAP = {
     "psg":              "Paris Saint-Germain",
     "man united":       "Manchester United",
@@ -591,6 +594,49 @@ ALIAS_MAP = {
     "lille":            "Lille",
     "monaco":           "AS Monaco",
     "alaves":           "Alavés",
+    "lafc":             "Los Angeles FC",
+    "la fc":            "Los Angeles FC",
+    "la galaxy":        "LA Galaxy",
+    "galaxy":           "LA Galaxy",
+    "nycfc":            "New York City FC",
+    "nyc fc":           "New York City FC",
+    "nyrb":             "New York Red Bulls",
+    "red bulls":        "New York Red Bulls",
+    "revs":             "New England Revolution",
+    "new england":      "New England Revolution",
+    "sounders":         "Seattle Sounders FC",
+    "timbers":          "Portland Timbers",
+    "atlanta united":   "Atlanta United FC",
+    "inter miami":      "Inter Miami CF",
+    "miami":            "Inter Miami CF",
+    "austin fc":        "Austin FC",
+    "charlotte fc":     "Charlotte FC",
+    "nashville":        "Nashville SC",
+    "cincinnati":       "FC Cincinnati",
+    "minnesota":        "Minnesota United FC",
+    "loons":            "Minnesota United FC",
+    "rapids":           "Colorado Rapids",
+    "fc dallas":        "FC Dallas",
+    "dynamo":           "Houston Dynamo FC",
+    "sporting kc":      "Sporting Kansas City",
+    "skc":              "Sporting Kansas City",
+    "rsl":              "Real Salt Lake",
+    "real salt lake":   "Real Salt Lake",
+    "quakes":           "San Jose Earthquakes",
+    "whitecaps":        "Vancouver Whitecaps FC",
+    "toronto fc":       "Toronto FC",
+    "tfc":              "Toronto FC",
+    "cf montreal":      "CF Montréal",
+    "montreal":         "CF Montréal",
+    "chicago fire":     "Chicago Fire FC",
+    "fire":             "Chicago Fire FC",
+    "crew":             "Columbus Crew",
+    "union":            "Philadelphia Union",
+    "dc united":        "D.C. United",
+    "orlando city":     "Orlando City SC",
+    "st louis":         "St. Louis City SC",
+    "stl":              "St. Louis City SC",
+    "san diego fc":     "San Diego FC",
     "usa":              "United States",
     "united states":    "United States",
     "america":          "United States",
@@ -870,7 +916,7 @@ def health_pipeline(request: Request):
 
 @app.get("/games")
 @limiter.limit("60/minute")
-def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea|worldcup)$"), window: Optional[int] = Query(None, ge=1, le=30)):
+def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea|mls)$"), window: Optional[int] = Query(None, ge=1, le=30)):
     """
     Return all games, optionally filtered by status and league.
     """
@@ -1081,126 +1127,6 @@ Rules:
 - Return ONLY valid JSON, no explanation, no markdown, no backticks
 """
 
-WORLD_CUP_CONTEXT = """
-World Cup specific rules:
-
-Data available:
-- Games: all World Cup matches stored with league = 'worldcup'
-- Goals: individual goal events for World Cup matches
-- Standings: group stage standings with group_name field (e.g. 'Group A')
-- Teams are national teams — home_team_name and away_team_name are country names
-
-Stages:
-- Group stage: teams play 3 games each, top 2 per group advance
-- Round of 32: first knockout round (48 teams → 24)
-- Round of 16: second knockout round  
-- Quarter-finals: 8 teams
-- Semi-finals: 4 teams
-- Third place playoff: losers of semi-finals
-- Final: 2 teams
-
-Status values for knockout rounds:
-- STATUS_FULL_TIME — game ended in 90 minutes
-- STATUS_EXTRA_TIME — game went to extra time
-- STATUS_PENALTIES — game decided on penalties
-
-Example queries:
-
--- Which teams have qualified from their group?
-SELECT team_name, group_name, points, wins, draws, losses, goals_for, goals_against, goal_diff, rank, note
-FROM standings
-WHERE league = 'worldcup'
-AND note ILIKE '%advance%'
-ORDER BY group_name ASC, rank ASC;
-
--- Show me Group A standings
-SELECT team_name, matches_played, wins, draws, losses, goals_for, goals_against, goal_diff, points, rank
-FROM standings
-WHERE league = 'worldcup'
-AND group_name = 'Group A'
-ORDER BY rank ASC;
-
--- Who has scored the most goals at the World Cup?
-SELECT 
-    gl.player_name,
-    COUNT(*) as goals,
-    MAX(CASE 
-        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
-        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
-    END) as country
-FROM goals gl
-JOIN games gm ON gl.game_id = gm.game_id
-WHERE gm.league = 'worldcup'
-AND gl.own_goal = false
-GROUP BY gl.player_name
-ORDER BY goals DESC
-LIMIT 10;
-
--- Which countries have scored the most goals?
-SELECT 
-    CASE 
-        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
-        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
-    END AS country,
-    COUNT(*) as goals
-FROM goals gl
-JOIN games gm ON gl.game_id = gm.game_id
-WHERE gm.league = 'worldcup'
-AND gl.own_goal = false
-GROUP BY country
-ORDER BY goals DESC;
-
--- What were the results in the group stage?
-SELECT home_team_name, away_team_name, home_score, away_score, start_time, status_detail
-FROM games
-WHERE league = 'worldcup'
-AND status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_EXTRA_TIME', 'STATUS_PENALTIES')
-ORDER BY start_time ASC;
-
--- Which games went to penalties?
-SELECT home_team_name, away_team_name, home_score, away_score, start_time, status_detail
-FROM games
-WHERE league = 'worldcup'
-AND status = 'STATUS_PENALTIES'
-ORDER BY start_time ASC;
-
--- Show me all World Cup games for a specific country
-SELECT home_team_name, away_team_name, home_score, away_score, start_time, status_detail
-FROM games
-WHERE league = 'worldcup'
-AND (home_team_name ILIKE '%England%' OR away_team_name ILIKE '%England%')
-ORDER BY start_time ASC;
-
--- Who scored in a specific World Cup match?
-SELECT 
-    gl.player_name,
-    gl.minute,
-    gl.goal_type,
-    gl.own_goal,
-    gl.penalty_goal,
-    CASE 
-        WHEN gl.team_id = gm.home_id THEN gm.home_team_name
-        WHEN gl.team_id = gm.away_id THEN gm.away_team_name
-    END AS scored_for,
-    gm.home_team_name,
-    gm.away_team_name,
-    gm.home_score,
-    gm.away_score
-FROM goals gl
-JOIN games gm ON gl.game_id = gm.game_id
-WHERE gm.league = 'worldcup'
-AND (gm.home_team_name ILIKE '%Brazil%' OR gm.away_team_name ILIKE '%Brazil%')
-AND gm.game_id = (
-    SELECT game_id FROM games
-    WHERE league = 'worldcup'
-    AND (home_team_name ILIKE '%Brazil%' OR away_team_name ILIKE '%Brazil%')
-    AND status NOT IN ('STATUS_SCHEDULED', 'STATUS_IN_PROGRESS', 'STATUS_HALFTIME')
-    ORDER BY start_time DESC
-    LIMIT 1
-)
-ORDER BY gl.seconds ASC;
-"""
-
 def expand_aliases(question: str) -> str:
     q = question.lower()
     for alias, full in ALIAS_MAP.items():
@@ -1239,10 +1165,6 @@ async def websocket_chat(websocket: WebSocket):
 
                     {TEAM_ALIASES}
 
-                    {WORLD_CUP_CONTEXT}
-
-                    {WORLD_CUP_ALIASES}
-
                     Rules:
                     - For completed or finished games use: 
                     status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_ABANDONED')
@@ -1256,7 +1178,6 @@ async def websocket_chat(websocket: WebSocket):
                     - ONLY use these tables: games, goals, standings, season_stats — never reference any other table
                     - Never use tables like player_stats, match_stats or any table not in the schema above
                     - Current season is {CURRENT_SEASON} — always use this value for club league season_stats queries
-                    - For World Cup season_stats queries use season = {WORLD_CUP_SEASON}
                     - Never hardcode a year in queries — always use {CURRENT_SEASON} for club leagues
                     - Current season is {CURRENT_SEASON} — use this for all current season queries
                     - Last season is {LAST_SEASON} but ScoreStream only has data for season {CURRENT_SEASON} onwards
@@ -1299,10 +1220,8 @@ async def websocket_chat(websocket: WebSocket):
                     - When asked questions like for any upcoming games soon, look for games with the status='STATUS_SCHEDULED' and start_time in the future, ordered by start_time ASC
                     - When asked about games that are or were live today, or live right now, look for games with start_time = CURRENT_DATE
                     - Limit results to 20 rows maximum
-                    - For league names use: epl, laliga, bundesliga, seriea, ligue1, worldcup
-                    - For World Cup questions always filter with league = 'worldcup'
+                    - For league names use: epl, laliga, bundesliga, seriea, ligue1, mls
                     - National teams use country names — search with ILIKE '%England%' not '%ENG%'
-                    - World Cup standings have a group_name field — always include it when querying standings
                     - For knockout round results check status IN ('STATUS_FULL_TIME', 'STATUS_FINAL', 'STATUS_EXTRA_TIME', 'STATUS_PENALTIES')
                     - Penalty shootout scores are NOT stored — only the score after extra time is recorded
                     - For "how many" or "are there any" questions, always use COUNT(*) so the result 
@@ -1311,7 +1230,6 @@ async def websocket_chat(websocket: WebSocket):
                     - A COUNT of 0 is a valid, meaningful answer — not a missing-data situation
                     - For 'who qualified' questions use the note field in standings — filter WHERE note ILIKE '%advance%'
                     - For group standings always ORDER BY rank ASC within each group_name
-                    - The 2026 World Cup has 48 teams split into 12 groups (A through L)
                     - Top 2 from each group advance plus 8 best third-place teams advance to Round of 32
                     - Never confuse club team names with national team names
                     - Never use DROP, DELETE, UPDATE, INSERT or any write operations
@@ -1448,7 +1366,6 @@ async def websocket_chat(websocket: WebSocket):
                     if asking about goal difference, include goal_diff and team_name, not points
                     - For 'what happened' questions give a full match summary:
                     first the score, then list each scorer, then a brief one-line summary
-                    - For World Cup results format as: Country A 2 - 1 Country B (AET) for extra time
                     - For penalty shootouts note: 'decided on penalties' since penalty scores aren't stored
                     - For group standings show the group name as a header
                     - For qualification questions list which teams advanced and from which group

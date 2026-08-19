@@ -10,62 +10,95 @@ const STATUS_STYLES = {
     MISSING: { bg: '#6b7280', text: '#ffffff', label: 'UNKNOWN' },
 }
 
-function ComponentCard({ name, component, theme }) {
+function ComponentCard({ name, component, theme, lastRefresh }) {
     const colors = STATUS_STYLES[component.state] || STATUS_STYLES.MISSING
 
     return (
         <div
-            style={{ backgroundColor: theme?.secondary, borderColor: theme?.border }}
-            className="border rounded-lg p-4 flex flex-col gap-2"
+            style={{ 
+                backgroundColor: theme?.secondary, 
+                borderColor: component.state === 'ALARM' ? '#ef4444' : theme?.border,
+                borderWidth: component.state === 'ALARM' ? '1.5px' : '1px',
+            }}
+            className="border rounded-xl p-4 flex flex-col gap-3"
         >
+            {/* Header row */}
             <div className="flex items-center justify-between">
-                <span className="text-white font-medium text-sm">
+                <span className="text-white font-semibold text-sm tracking-tight">
                     {component.label || name}
                 </span>
                 <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    className="text-xs font-bold px-2.5 py-1 rounded-full tracking-wider"
                     style={{ backgroundColor: colors.bg, color: colors.text }}
                 >
                     {colors.label}
                 </span>
             </div>
 
-            {/* State detail */}
+            {/* Alarm reason */}
             {component.state === 'ALARM' && component.reason && (
-                <p className="text-xs text-red-400 opacity-80">
+                <p className="text-xs text-red-400 bg-red-950 rounded px-2 py-1">
                     {component.reason}
                 </p>
             )}
 
-            {/* Producer-specific: last poll info */}
+            {/* Producer last poll */}
             {component.last_poll && (
-                <div className="text-xs text-purple-300 space-y-0.5">
-                    <div>
-                        Last poll: {new Date(component.last_poll).toLocaleTimeString('en-US', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            second: '2-digit',
-                            timeZone: 'America/New_York',
-                        })} EDT
-                    </div>
-                    {component.stale && (
-                        <div className="text-yellow-400">
-                            ⚠ Poll appears stale ({Math.floor(component.poll_age_seconds / 60)}m ago)
-                        </div>
-                    )}
-                </div>
-            )}
+				<div className="flex flex-col gap-1">
+					<div className="flex items-center gap-1.5">
+						<span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>
+						<span className="text-xs font-medium" style={{ color: theme?.accent }}>
+							Last poll {new Date(component.last_poll + 'Z').toLocaleTimeString('en-US', {
+								hour: 'numeric',
+								minute: '2-digit',
+								second: '2-digit',
+								timeZone: 'America/New_York',
+							})} EDT
+						</span>
+					</div>
+					{component.stale && (
+						<span className="text-xs text-yellow-400 flex items-center gap-1">
+							⚠ Stale — {Math.floor(component.poll_age_seconds / 60)}m ago
+						</span>
+					)}
+				</div>
+			)}
 
-            {/* Last state change */}
-            {component.updated && (
-                <p className="text-xs opacity-40" style={{ color: theme?.text }}>
-                    Updated {new Date(component.updated).toLocaleTimeString('en-US', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        timeZone: 'America/New_York',
-                    })} EDT
-                </p>
-            )}
+            {/* Divider */}
+            <div style={{ borderColor: theme?.border }} className="border-t opacity-30" />
+
+            {/* Timestamps */}
+            <div className="flex flex-col gap-0.5">
+                {component.updated && (
+                    <div className="flex justify-between items-center">
+                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                            State changed
+                        </span>
+                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                            {new Date(component.updated).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                timeZone: 'America/New_York',
+                            })} EDT
+                        </span>
+                    </div>
+                )}
+                {lastRefresh && (
+                    <div className="flex justify-between items-center">
+                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                            Last checked
+                        </span>
+                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                            {lastRefresh.toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                timeZone: 'America/New_York',
+                            })} EDT
+                        </span>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }
@@ -184,27 +217,34 @@ export default function PipelineTab({ theme }) {
 
             {/* Component groups */}
             {groups.map(group => (
-                <div key={group.label}>
-                    <h3
-                        className="text-xs font-semibold uppercase tracking-wider mb-3"
-                        style={{ color: theme?.accent, opacity: 0.7 }}
-                    >
-                        {group.label}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {group.keys.map(key => (
-                            components[key] && (
-                                <ComponentCard
-                                    key={key}
-                                    name={key}
-                                    component={components[key]}
-                                    theme={theme}
-                                />
-                            )
-                        ))}
-                    </div>
-                </div>
-            ))}
+				<div key={group.label}>
+					<div className="flex items-center gap-3 mb-3">
+						<h3
+							className="text-xs font-bold uppercase tracking-widest"
+							style={{ color: theme?.accent }}
+						>
+							{group.label}
+						</h3>
+						<div 
+							className="flex-1 h-px opacity-20"
+							style={{ backgroundColor: theme?.accent }}
+						/>
+					</div>
+					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+						{group.keys.map(key => (
+							components[key] && (
+								<ComponentCard
+									key={key}
+									name={key}
+									component={components[key]}
+									theme={theme}
+									lastRefresh={lastRefresh}
+								/>
+							)
+						))}
+					</div>
+				</div>
+			))}
 
             {/* Footer note */}
             <p className="text-xs text-center opacity-40" style={{ color: theme?.text }}>

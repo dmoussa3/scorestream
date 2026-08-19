@@ -1,9 +1,8 @@
-from datetime import datetime, timedelta
 import requests
 import psycopg2
 import boto3
 import json
-import os
+from datetime import datetime
 
 def get_rds_credentials():
     client = boto3.client('secretsmanager', region_name='us-east-1')
@@ -18,10 +17,10 @@ LEAGUES = {
     'bundesliga': 'ger.1',
     'seriea': 'ita.1',
     'ligue1': 'fra.1',
-    'worldcup': 'fifa.world'
+    'mls': 'usa.1'
 }
 
-CURRENT_SEASON = 2026
+CURRENT_SEASON = datetime.now().year  # Adjust as needed for the current season
 
 def fetch_standings(league_name: str, league_id: str):
     url = f"{ESPN_BASE}/{league_id}/standings"
@@ -35,7 +34,6 @@ def fetch_standings(league_name: str, league_id: str):
 
         for group in resp.json().get('children', []):
             name = group.get('name', '')
-            print(f"[airflow] Found group: {name}")  # ← debug
             for entry in group.get('standings', {}).get('entries', []):
                 entry['_group_name'] = name  # Add group name to each entry for context
                 standings.append(entry)
@@ -90,6 +88,10 @@ def refresh_all_standings(conn):
 
             records = [parse_standings(e, league_key) for e in entries]
             records = [r for r in records if r is not None]
+
+            if not records:
+                print(f"[airflow] No valid records parsed for {league_key} — skipping")
+                continue
 
             current = [r['team_id'] for r in records]
 

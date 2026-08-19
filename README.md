@@ -2,7 +2,7 @@
 
 A real-time football data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose for local development and deployed to AWS using CDK.
 
-ScoreStream ingests live match data from **5 major European leagues and the FIFA World Cup** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel batch layer handles scheduled standings refreshes, season stats aggregation, and daily Parquet archiving. A natural language chat interface powered by Claude — with streamed, real-time responses over WebSocket — allows users to query live pipeline data in plain English and receive both text answers and dynamically generated charts.
+ScoreStream ingests live match data from **5 major European leagues and the MLS (Major League Soccer)** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel batch layer handles scheduled standings refreshes, season stats aggregation, and daily Parquet archiving. A natural language chat interface powered by Claude — with streamed, real-time responses over WebSocket — allows users to query live pipeline data in plain English and receive both text answers and dynamically generated charts.
 
 ---
 
@@ -18,7 +18,7 @@ Python Producer
         │  publishes to Kafka topic
         ▼
 ┌─────────────────────────────────────┐
-│  sports.live.scores (3 partitions)  │  game state + goal events
+│  sports.live.scores (2 partitions)  │  game state + goal events
 └─────────────────────────────────────┘
         │
         ▼
@@ -71,14 +71,14 @@ CloudWatch Dashboard + Alarms → SNS → Email
 
 The entire AWS infrastructure is defined as code using AWS CDK (Python) in the `infra/` directory. The stack is organized into six independent deployable units:
 
-| Stack | Resources |
-|---|---|
-| NetworkStack | VPC, public/private subnets, NAT gateway, security groups, Secrets Manager |
-| DataStack | RDS PostgreSQL, ElastiCache Redis, S3 (Glue scripts and checkpoints) |
-| MskStack | Amazon MSK Kafka cluster with IAM authentication |
-| ComputeStack | ECS cluster, producer service, Glue streaming job, API service, ALB, scheduler tasks, EventBridge schedules |
-| EdgeStack | S3 (frontend), CloudFront distribution with OAC |
-| MonitoringStack | CloudWatch dashboard, alarms, SNS topic |
+| Stack           | Resources                                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------- |
+| NetworkStack    | VPC, public/private subnets, NAT gateway, security groups, Secrets Manager                                  |
+| DataStack       | RDS PostgreSQL, ElastiCache Redis, S3 (Glue scripts and checkpoints)                                        |
+| MskStack        | Amazon MSK Kafka cluster with IAM authentication                                                            |
+| ComputeStack    | ECS cluster, producer service, Glue streaming job, API service, ALB, scheduler tasks, EventBridge schedules |
+| EdgeStack       | S3 (frontend), CloudFront distribution with OAC                                                             |
+| MonitoringStack | CloudWatch dashboard, alarms, SNS topic                                                                     |
 
 Deploy all stacks:
 
@@ -98,33 +98,34 @@ cdk destroy --all
 
 ## Supported Competitions
 
-| Competition | ESPN Code | Teams | Type |
-|---|---|---|---|
-| Premier League | eng.1 | 20 | Club |
-| La Liga | esp.1 | 20 | Club |
-| Bundesliga | ger.1 | 18 | Club |
-| Serie A | ita.1 | 20 | Club |
-| Ligue 1 | fra.1 | 20 | Club |
-| FIFA World Cup | fifa.world | 48 | National |
+| Competition    | ESPN Code | Teams | Type |
+| -------------- | --------- | ----- | ---- |
+| Premier League | eng.1     | 20    | Club |
+| La Liga        | esp.1     | 20    | Club |
+| Bundesliga     | ger.1     | 18    | Club |
+| Serie A        | ita.1     | 20    | Club |
+| Ligue 1        | fra.1     | 20    | Club |
+| MLS            | usa.1     | 29    | Club |
 
 ---
 
 ## Local Services
 
-| Service | Port | Description |
-|---|---|---|
-| FastAPI | 8000 | REST API + WebSocket + streamed AI chat |
-| Frontend | 3000 | React dashboard |
-| Airflow | 8081 | Pipeline orchestration |
-| Kafka UI | 8090 | Topic inspection |
-| PostgreSQL | 5432 | Primary database |
-| Redis | 6379 | Cache + pub/sub |
+| Service    | Port | Description                             |
+| ---------- | ---- | --------------------------------------- |
+| FastAPI    | 8000 | REST API + WebSocket + streamed AI chat |
+| Frontend   | 3000 | React dashboard                         |
+| Airflow    | 8081 | Pipeline orchestration                  |
+| Kafka UI   | 8090 | Topic inspection                        |
+| PostgreSQL | 5432 | Primary database                        |
+| Redis      | 6379 | Cache + pub/sub                         |
 
 ---
 
 ## Database Schema
 
 **games**
+
 ```
 game_id, league, home_team, away_team, home_team_name, away_team_name,
 home_id, away_id, home_logo, away_logo, home_score, away_score,
@@ -133,6 +134,7 @@ start_time (TIMESTAMPTZ), round, last_updated
 ```
 
 **goals**
+
 ```
 id, game_id, league, player_id, player_name, team_id,
 minute, seconds (FLOAT), goal_type, own_goal, penalty_goal, created_at
@@ -142,6 +144,7 @@ UNIQUE (game_id, team_id, seconds)
 The unique constraint is keyed on `team_id` rather than `player_id` — ESPN occasionally reassigns which player is credited for a goal (most commonly own-goal corrections), and the team + timing is the stable identity of the event. Spark's delete-then-upsert removes any goal no longer present in ESPN's current payload before re-inserting, so corrections update in place without producing duplicates. Penalty shootout kicks are filtered out in the producer using a combination of ESPN's `shootout` flag and a defensive clock-value check (≥7200 seconds in a penalties-final status game).
 
 **standings**
+
 ```
 team_id, league, season, team_name, group_name, wins, draws, losses,
 points, goals_for, goals_against, goal_diff, matches_played,
@@ -150,6 +153,7 @@ PRIMARY KEY (team_id, league, season)
 ```
 
 **season_stats**
+
 ```
 player_id, player_name, team_id, team_name, league, season,
 goals, assists, penalties, last_updated
@@ -157,6 +161,7 @@ PRIMARY KEY (player_id, league, season)
 ```
 
 **pipeline_metadata**
+
 ```
 key, value, last_updated
 ```
@@ -187,9 +192,7 @@ A React single-page application with six views and per-competition theming:
 
 **Scores** — Match cards grouped by Eastern Time date (Today / Tomorrow / Yesterday / full date), live games sorted first within each day. Auto-scrolls to today's matches on load. Updates via WebSocket push.
 
-**Standings** — Club leagues: full table with points, goal difference, color-coded UEFA qualification and relegation zones. World Cup: responsive grid of group tables with ESPN qualification notes and team logos.
-
-**Bracket** — World Cup knockout bracket with connector lines between rounds. Uses a hybrid linkage strategy: winner-matching for resolved games and placeholder-name parsing ("Round of 32 8 Winner" → slot 8) for unresolved fixtures, so bracket positioning locks in immediately when fixtures are scheduled rather than waiting for games to finish. Fixed-slot vertical spacing (doubling per round) ensures cards align correctly between columns.
+**Standings** — Club leagues: full table with points, goal difference, color-coded UEFA qualification and relegation zones.
 
 **Match Detail** — Score header with shootout scores when applicable, goal scorers correctly attributed after ESPN corrections, visual goal timeline with dynamic duration for extra time games. Live games show an interpolated clock that ticks between 30-second API updates.
 
@@ -206,7 +209,7 @@ User question (WebSocket)
     ↓
 Alias expansion (PSG → Paris Saint-Germain, Holland → Netherlands, etc.)
     ↓
-Claude — SQL generation (schema + examples + team aliases + World Cup context)
+Claude — SQL generation (schema + examples + team aliases + MLS context)
     ↓
 PostgreSQL — safe read-only execution
     ↓
@@ -218,15 +221,15 @@ React — text renders live; chart + SQL toggle appear on completion
 ```
 
 **Example questions:**
+
 - "Who is the top scorer in the Premier League?"
 - "Show me the Bundesliga standings as a chart"
 - "Who scored in Arsenal's last game?"
-- "Which teams have qualified from Group A?"
-- "Has anyone scored a penalty at the World Cup?"
 - "What proportion of goals were open play vs penalties in Ligue 1?"
 - "Show me PSG's form over their last 5 games"
 
 **Safety measures:**
+
 - Generated SQL checked for write operations before execution
 - Only SELECT statements permitted
 - Queries limited to 20 rows
@@ -242,7 +245,7 @@ ESPN retains ~3 weeks of scoreboard history. Full season historical data is back
 python backfill_historical.py
 ```
 
-A manually curated mapping of 96+ teams ensures ESPN team IDs are used for historical games so logos render correctly. World Cup data is ingested live — no backfill needed.
+A manually curated mapping of 96+ teams ensures ESPN team IDs are used for historical games so logos render correctly.
 
 ---
 
@@ -306,6 +309,7 @@ scorestream/
 ## Local Setup
 
 ### Prerequisites
+
 - Docker and Docker Compose
 - Anthropic API key
 
@@ -323,9 +327,9 @@ FOOTBALL_DATA_API_KEY=your_key_here  # optional, backfill only
 `docker-compose.yml` frontend environment:
 
 ```yaml
-REACT_APP_API_URL:      http://localhost:8000
-REACT_APP_WS_URL:       ws://localhost:8000/ws
-REACT_APP_CHAT_WS_URL:  ws://localhost:8000/ws/chat
+REACT_APP_API_URL: http://localhost:8000
+REACT_APP_WS_URL: ws://localhost:8000/ws
+REACT_APP_CHAT_WS_URL: ws://localhost:8000/ws/chat
 ```
 
 ### Start
@@ -355,6 +359,7 @@ python backfill_historical.py
 ## AWS Setup
 
 ### Prerequisites
+
 - AWS account and CLI configured
 - Node (for CDK CLI): `npm install -g aws-cdk`
 - CDK bootstrapped: `cdk bootstrap aws://ACCOUNT_ID/us-east-1`
@@ -404,9 +409,7 @@ cdk destroy --all
 
 **UTC-correct date grouping** — Late-evening kickoffs (9-10pm EDT) cross midnight UTC and land on the next calendar day. All date grouping uses Eastern Time via `toLocaleDateString('en-US', { timeZone: 'America/New_York' })`, and the backend window filter uses PostgreSQL's AT TIME ZONE conversion to anchor boundaries to Eastern midnight rather than UTC midnight.
 
-**World Cup bracket** — ESPN creates next-round fixtures with placeholder team names ("Round of 32 8 Winner") before feeders are resolved. A hybrid linkage strategy uses winner-matching for resolved games and placeholder-name parsing for unresolved ones, so bracket cards are positioned correctly from the moment fixtures are scheduled. Fixed-slot vertical spacing (BASE_SLOT × 2^roundIndex) ensures alignment holds through the full bracket. SVG connector lines are computed from the same slot constants rather than DOM measurement, so positions are exact without layout queries.
-
-**Multi-competition pipeline** — Extending from EPL to six competitions required generalizing every layer: LEAGUES dict in the producer, renamed Kafka topics (epl.* → sports.*), league column throughout the schema, group_name/note/note_color/logo_url on standings for World Cup groups, round column on games for knockout stage, and shootout_home/shootout_away for penalty results.
+**Multi-competition pipeline** — Extending from EPL to six competitions required generalizing every layer: LEAGUES dict in the producer, renamed Kafka topics (epl._ → sports._), league column throughout the schema, group_name/note/note_color/logo_url on standings.
 
 **Streamed AI chat** — Moving from a blocking HTTP POST to a WebSocket-streamed response required structuring the pipeline so SQL generation, query execution, and chart detection run synchronously first, then the answer-formatting step streams token-by-token. Two separate WebSocket connections (useWebSocket for scores, useChatWebSocket for chat) use distinct environment variables to prevent the silent URL-collision bug where both hooks read the same env var and connect to the wrong endpoint.
 

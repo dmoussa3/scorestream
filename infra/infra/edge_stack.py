@@ -45,7 +45,7 @@ class EdgeStack(Stack):
                     frontend_bucket,
                     origin_access_control=oac,
                 ),
-                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.ALLOW_ALL,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                 compress=True,
             ),
@@ -87,14 +87,14 @@ class EdgeStack(Stack):
                 ),
                 "/ws": cloudfront.BehaviorOptions(
                     origin=alb_origin,
-                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.ALLOW_ALL,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                 ),
                 "/ws/chat": cloudfront.BehaviorOptions(
                     origin=alb_origin,
-                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.ALLOW_ALL,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
@@ -131,8 +131,8 @@ class EdgeStack(Stack):
         CfnOutput(
             self,
             "CloudFrontDomainName",
-            value=self.cloudfront_domain,
-            description="CloudFront distribution domain name for CORS configuration"
+            value=distribution.domain_name,
+            description="CloudFront distribution URL for CORS configuration"
         )
 
         s3deploy.BucketDeployment(

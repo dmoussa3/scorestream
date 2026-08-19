@@ -16,7 +16,7 @@ const LEAGUES_NAMES = {
 	'bundesliga': 'Bundesliga 🇩🇪',
 	'seriea': 'Serie A 🇮🇹',
 	'ligue1': 'Ligue 1 🇫🇷',
-	'worldcup': 'World Cup 🌍',
+	'mls': 'Major League Soccer 🇺🇸',
 }
 
 const LEAGUE_THEMES = {
@@ -43,16 +43,16 @@ const LEAGUE_THEMES = {
         name:       'La Liga',
     },
     bundesliga: {
-        primary:    '#d3010c',  // red
-        secondary:  '#a80009',
-        accent:     '#ffffff',  // white
-        border:     '#ff1a1a',
-        text:       '#ffffff',
-		home: 	 	'#0d71db',
-		away: 	 	'#ffcccb',
-		pageBg:    '#4a0006',
-        name:       'Bundesliga',
-    },
+		primary:    '#ae0014',  // deep red
+		secondary:  '#1a0003',
+		border:     '#7a000a',
+		pageBg:     '#110002',
+		text:       '#ffffff',
+		home:       '#0d71db',
+		away:       '#ffcccb',
+		pageBg:     '#0d0002', 
+		name:       'Bundesliga',
+	},
     seriea: {
         primary:    '#1a1a2e',  // dark navy
         secondary:  '#16213e',
@@ -75,17 +75,17 @@ const LEAGUE_THEMES = {
 		pageBg:    '#001040',
         name:       'Ligue 1',
     },
-	worldcup: {
-        primary:   '#003580',   // FIFA blue
-        secondary: '#002060',
-        accent:    '#ffd700',   // gold
-        border:    '#004aad',
-        text:      '#ffd700',
-		home: 	 	'#0d71db',
-		away: 	 	'#ff1a1a',
-		pageBg:    '#001030',
-        name:      'World Cup',
-    },
+	mls: {
+		primary:    '#001F5B',  // deep navy
+		secondary:  '#001444',
+		accent:     '#E2231A',  // MLS red
+		border:     '#002a7a',
+		text:       '#E2231A',
+		home:       '#4a90d9',
+		away:       '#ff6b6b',
+		pageBg:     '#000d33',
+		name:       'Major League Soccer',
+	},
 }
 
 const LEAGUE_COLORS = {
@@ -94,7 +94,7 @@ const LEAGUE_COLORS = {
     bundesliga: { bg: '#d3010c', text: '#ffffff', border: '#ffffff' },
     seriea:     { bg: '#1a1a2e', text: '#0096ff', border: '#0096ff' },
     ligue1:     { bg: '#003189', text: '#ffffff', border: '#ffffff' },
-    worldcup:   { bg: '#003580', text: '#ffd700', border: '#ffd700' },
+    mls: 		{ bg: '#001F5B', text: '#E2231A', border: '#E2231A' },
 }
 
 export default function App() {
@@ -102,8 +102,8 @@ export default function App() {
 	const [apiStatus, setApiStatus] = useState('checking...')
 	const [selectedGameId, setSelectedGameId] = useState(null)
 	const [lastUpdate, setLastUpdate] = useState(null)
-	const [selectedLeague, setSelectedLeague] = useState('worldcup')
-	const availableLeagues = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1', 'worldcup']
+	const [selectedLeague, setSelectedLeague] = useState('epl')
+	const availableLeagues = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1', 'mls']
 	const { isConnected: chatConnected, sendQuestion} = useChatWebSocket()
 
 	const handleWebSocketMessage = useCallback((message) => {
@@ -192,7 +192,7 @@ export default function App() {
 							>
 								Standings
 							</button>
-							{selectedLeague === 'worldcup' && (
+							{selectedLeague === 'ucl' && (
 								<button
 									onClick={() => setActiveTab('bracket')}
 									className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
@@ -304,7 +304,7 @@ export default function App() {
 				<ScoresTab onSelectGame={handleSelectedGame} lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />
 			)}
 			{activeTab === 'standings' && <StandingsTab lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />}
-			{activeTab === 'bracket' && selectedLeague === 'worldcup' && (
+			{activeTab === 'bracket' && selectedLeague === 'ucl' && (
 				<BracketTab theme={theme} onSelectGame={(gameId) => {
 					setSelectedGameId(gameId)
 					setActiveTab('match')
