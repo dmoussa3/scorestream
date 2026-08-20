@@ -11,6 +11,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 import psycopg2
 from curl_cffi import requests as cffi_requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from kafka import KafkaProducer
@@ -377,43 +378,73 @@ def run():
     while True:
         poll_count += 1
         print(f"[producer] ── Poll #{poll_count} @ {datetime.now().strftime('%H:%M:%S')} ──")
-        
-        # ── Scores ──
 
-        for league_name, league_id in LEAGUES.items():
+        # ── Scores — fetch all leagues concurrently ──
+        def fetch_and_publish_scores(args):
+            league_name, league_id = args
             games = fetch_scoreboard(league_id)
-            published_games = 0
+            published = 0
+            events = []
             for game in games:
                 event = parse_game(game, league_name)
                 if event:
-                    producer.send(
-                        topic=TOPIC_SCORES,
-                        key=event["game_id"],
-                        value=event,
-                    )
-                    published_games += 1
-            print(f"  [{league_name}] {published_games} games published")
-            time.sleep(0.5)
+                    events.append((event["game_id"], event))
+                    published += 1
+            return league_name, events, published
 
-        # ── Standings (every 3 polls to reduce API load) ──
+        all_score_events = []
+        with ThreadPoolExecutor(max_workers=len(LEAGUES)) as executor:
+            futures = {
+                executor.submit(fetch_and_publish_scores, item): item
+                for item in LEAGUES.items()
+            }
+            for future in as_completed(futures):
+                try:
+                    league_name, events, published = future.result()
+                    all_score_events.extend(events)
+                    print(f"  [{league_name}] {published} games published")
+                except Exception as e:
+                    league_name = futures[future][0]
+                    print(f"  [{league_name}] Error: {e}")
+
+        # Publish all score events after all fetches complete
+        for game_id, event in all_score_events:
+            producer.send(
+                topic=TOPIC_SCORES,
+                key=game_id,
+                value=event,
+            )
+
+        # ── Standings — fetch all leagues concurrently (every 3 polls) ──
         if poll_count % 3 == 0:
-            for league_name, league_id in LEAGUES.items():
-                print(f"  Fetching standings for {league_name}...")
+            def fetch_and_parse_standings(args):
+                league_name, league_id = args
                 standings = fetch_standings(league_id)
                 all_standings = []
-
                 for entry in standings:
                     record = parse_standing(entry, league_name)
                     if record:
                         all_standings.append(record)
+                return league_name, all_standings
 
-                if all_standings:
-                    producer.send(
-                        topic=TOPIC_STANDINGS,
-                        key=f"{league_name}_standings",
-                        value=all_standings,
-                    )
-                    print(f"  [standings] {league_name}: Published {len(standings)} team records")
+            with ThreadPoolExecutor(max_workers=len(LEAGUES)) as executor:
+                futures = {
+                    executor.submit(fetch_and_parse_standings, item): item
+                    for item in LEAGUES.items()
+                }
+                for future in as_completed(futures):
+                    try:
+                        league_name, all_standings = future.result()
+                        if all_standings:
+                            producer.send(
+                                topic=TOPIC_STANDINGS,
+                                key=f"{league_name}_standings",
+                                value=all_standings,
+                            )
+                            print(f"  [standings] {league_name}: Published {len(all_standings)} team records")
+                    except Exception as e:
+                        league_name = futures[future][0]
+                        print(f"  [standings] {league_name} Error: {e}")
 
         producer.flush()
         print(f"  Sleeping {POLL_INTERVAL}s...\n")
@@ -422,17 +453,15 @@ def run():
             cursor.execute("""
                 INSERT INTO pipeline_metadata (key, value, last_updated)
                 VALUES ('last_poll', %s, NOW())
-                ON CONFLICT (key) DO UPDATE SET 
-                    value = EXCLUDED.value, 
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
                     last_updated = NOW()
             """, (datetime.now(timezone.utc).isoformat(),))
             conn.commit()
-
         except psycopg2.OperationalError:
             print(f"[producer] Lost database connection, reconnecting...")
             conn = get_db()
             cursor = conn.cursor()
-
         except Exception as e:
             print(f"[producer] Error updating metadata: {e}")
             conn.rollback()

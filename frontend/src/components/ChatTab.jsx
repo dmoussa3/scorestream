@@ -20,7 +20,7 @@ function ChatChart({ chart, theme }) {
     // Parse data if it came back as a string
     const data = (typeof chart.data === 'string' ? JSON.parse(chart.data) : chart.data)
         .map(row => {
-            const cleaned = {...row}
+            const cleaned = { ...row }
             Object.keys(cleaned).forEach(k => {
                 if (typeof cleaned[k] === 'string' && Number.isInteger(Math.round(cleaned[k]))) {
                     cleaned[k] = Math.round(cleaned[k])
@@ -181,7 +181,7 @@ function ChatChart({ chart, theme }) {
                         {chart.title}
                     </p>
                 )}
-                
+
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie
@@ -259,7 +259,7 @@ export default function ChatTab({ theme, isConnected, sendQuestion }) {
                     return updated
                 })
             },
-            onAnswerStart: () => {},
+            onAnswerStart: () => { },
             onChunk: (text) => {
                 setMessages(prev => {
                     const updated = [...prev]
@@ -274,8 +274,8 @@ export default function ChatTab({ theme, isConnected, sendQuestion }) {
                     updated[updated.length - 1] = {
                         ...updated[updated.length - 1],
                         content: final.message,
-                        chart:   final.chart,
-                        sql:     final.sql,
+                        chart: final.chart,
+                        sql: final.sql,
                     }
                     return updated
                 })
@@ -321,9 +321,8 @@ export default function ChatTab({ theme, isConnected, sendQuestion }) {
                                 ? { backgroundColor: theme.accent, color: theme.primary, borderColor: theme.primary }
                                 : { backgroundColor: theme.secondary, color: 'white', borderColor: theme.primary }
                             }
-                            className={`max-w-xs lg:max-w-md px-4 py-3 border rounded-2xl text-sm ${
-                                msg.role === 'assistant' ? 'border' : ''
-                            }`}
+                            className={`max-w-xs lg:max-w-md px-4 py-3 border rounded-2xl text-sm ${msg.role === 'assistant' ? 'border' : ''
+                                }`}
                         >
                             {(msg.content || '').split('\n').map((line, j) => (
                                 <span key={j}>
@@ -382,7 +381,11 @@ export default function ChatTab({ theme, isConnected, sendQuestion }) {
                         <button
                             key={i}
                             onClick={() => sendMessage(q)}
-                            style={{ borderColor: theme.border, color: theme.accent, backgroundColor: theme.secondary }}
+                            style={{
+                                borderColor: theme.accent,
+                                color: theme.accent,
+                                backgroundColor: `${theme.accent}15`,  // accent at 8% opacity — subtle tint
+                            }}
                             className="text-xs px-3 py-1.5 rounded-full border hover:opacity-80 transition-opacity"
                         >
                             {q}

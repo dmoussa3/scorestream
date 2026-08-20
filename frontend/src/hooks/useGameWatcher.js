@@ -5,6 +5,11 @@ const FINAL_STATUSES = ['STATUS_FULL_TIME', 'STATUS_FINAL_AET', 'STATUS_FINAL_PE
 
 export function useGameWatcher(games, notify, subscriptions) {
     const prevGamesRef = useRef({})
+    const notifyRef = useRef(notify)
+
+    useEffect(() => {
+        notifyRef.current = notify
+    })
 
     useEffect(() => {
         if (!games?.length) return
@@ -16,7 +21,7 @@ export function useGameWatcher(games, notify, subscriptions) {
                 prevGamesRef.current[game.game_id] = game
                 return
             }
-            
+
             const shouldNotify = subscriptions?.has(game.game_id)
 
             if (shouldNotify) {
@@ -45,7 +50,6 @@ export function useGameWatcher(games, notify, subscriptions) {
                 }
 
                 // STATUS CHANGES
-
                 if (game.status !== prev.status) {
 
                     // Kickoff
@@ -61,31 +65,30 @@ export function useGameWatcher(games, notify, subscriptions) {
                     if (game.status === 'STATUS_HALFTIME') {
                         notify(
                             `⏸ Halftime`,
-                            `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team} is at halftime`,
+                            `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team} - Halftime`,
                             `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
                         )
                     }
 
-                    const winner = `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
-                    if (newAwayScore > newHomeScore) {
-                        winner = `https://a.espncdn.com/i/teamlogos/soccer/500/${game.away_id}.png`
+                    // Second half start
+                    if (game.status === 'STATUS_SECOND_HALF') {
+                        notify(
+                            `🟢 Second Half`,
+                            `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team} — Second half started`,
+                            `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
+                        )
                     }
 
-                    // Full-time
+                    // Full time
                     if (FINAL_STATUSES.includes(game.status)) {
+                        let winner = `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
+                        if (newAwayScore > newHomeScore) {
+                            winner = `https://a.espncdn.com/i/teamlogos/soccer/500/${game.away_id}.png`
+                        }
                         notify(
                             `🔴 Full Time`,
                             `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team}`,
                             winner
-                        )
-                    }
-
-                    // Second-half start
-                    if (game.status === 'STATUS_SECOND_HALF') {
-                        notify(
-                            `🟢 Second Half`,
-                            `${game.home_team} ${newHomeScore} – ${newAwayScore} ${game.away_team} -- Second half started`,
-                            `https://a.espncdn.com/i/teamlogos/soccer/500/${game.home_id}.png`
                         )
                     }
                 }
@@ -93,5 +96,5 @@ export function useGameWatcher(games, notify, subscriptions) {
 
             prevGamesRef.current[game.game_id] = game
         })
-    }, [games])
+    }, [games, subscriptions])
 }

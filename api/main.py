@@ -854,7 +854,7 @@ def health_pipeline(request: Request):
             row = cursor.fetchone()
 
             if row:
-                last_poll = row['last_updated'].isoformat()
+                last_poll = row['value']
                 last_updated = row['last_updated']
 
                 if last_updated.tzinfo is None:
@@ -916,14 +916,16 @@ def health_pipeline(request: Request):
 
 @app.get("/games")
 @limiter.limit("60/minute")
-def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea|mls)$"), window: Optional[int] = Query(None, ge=1, le=30)):
+def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STATUS_IN_PROGRESS|STATUS_FINAL|STATUS_FULL_TIME|STATUS_SCHEDULED)$"), league: Optional[str] = Query(None, regex="^(bundesliga|ligue1|epl|laliga|seriea|mls)$"), window: Optional[int] = Query(None, ge=1, le=30), bust: Optional[bool] = Query(False)):
     """
     Return all games, optionally filtered by status and league.
     """
     cache_key = f"games:{status or 'all'}:{league or 'all'}:{window or 'all'}"
-    cached = cache.get(cache_key)
-    if cached:
-        return json.loads(cached)
+
+    if not bust:
+        cached = cache.get(cache_key)
+        if cached:
+            return json.loads(cached)
 
     conn = None
 
@@ -960,7 +962,7 @@ def get_games(request: Request, status: Optional[str] = Query(None, regex="^(STA
 
         rows = [dict(r) for r in cursor.fetchall()]
 
-        has_live = any(r["status"] in ("STATUS_IN_PROGRESS", "STATUS_FIRST_HALF", "STATUS_SECOND_HALF") for r in rows)
+        has_live = any(r["status"] in ("STATUS_IN_PROGRESS", "STATUS_FIRST_HALF", "STATUS_HALFTIME", "STATUS_SECOND_HALF") for r in rows)
         ttl = get_ttl(has_live)
 
         # Serialize datetime objects

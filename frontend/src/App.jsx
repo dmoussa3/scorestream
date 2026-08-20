@@ -20,81 +20,81 @@ const LEAGUES_NAMES = {
 }
 
 const LEAGUE_THEMES = {
-    epl: {
-        primary:    '#37003c',  // deep purple
-        secondary:  '#2d0032',
-        accent:     '#00ff85',  // PL green
-        border:     '#5f0068',
-        text:       '#00ff85',
-		home: 	 	'#0d71db',
-		away: 	 	'#d11e1b',
-		pageBg:    '#1a0020',
-        name:       'Premier League',
-    },
-    laliga: {
-        primary:    '#003366',  // deep blue
-        secondary:  '#002244',
-        accent:     '#ff4500',  // orange/red
-        border:     '#004499',
-        text:       '#ff4500',
-		home: 	 	'#0d71db',
-		away: 	 	'#ffcccb',
-		pageBg:    '#001a33',
-        name:       'La Liga',
-    },
-    bundesliga: {
-		primary:    '#ae0014',  // deep red
-		secondary:  '#1a0003',
-		border:     '#7a000a',
-		pageBg:     '#110002',
-		text:       '#ffffff',
-		home:       '#0d71db',
-		away:       '#ffcccb',
-		pageBg:     '#0d0002', 
-		name:       'Bundesliga',
+	epl: {
+		primary: '#37003c',  // deep purple
+		secondary: '#2d0032',
+		accent: '#00ff85',  // PL green
+		border: '#5f0068',
+		text: '#00ff85',
+		home: '#0d71db',
+		away: '#d11e1b',
+		pageBg: '#1a0020',
+		name: 'Premier League',
 	},
-    seriea: {
-        primary:    '#1a1a2e',  // dark navy
-        secondary:  '#16213e',
-        accent:     '#0096ff',  // blue
-        border:     '#0066cc',
-        text:       '#0096ff',
-		home: 	 	'#6d0db7',
-		away: 	 	'#ff1a1a',
-		pageBg:    '#0d0d1a',
-        name:       'Serie A',
-    },
-    ligue1: {
-        primary:    '#003189',  // dark blue
-        secondary:  '#002070',
-        accent:     '#ffffff',  // white
-        border:     '#0044cc',
-        text:       '#ffffff',
-		home: 	 	'#0d71db',
-		away: 	 	'#ff1a1a',
-		pageBg:    '#001040',
-        name:       'Ligue 1',
-    },
+	laliga: {
+		primary: '#003366',  // deep blue
+		secondary: '#002244',
+		accent: '#ff4500',  // orange/red
+		border: '#004499',
+		text: '#ff4500',
+		home: '#0d71db',
+		away: '#ffcccb',
+		pageBg: '#001a33',
+		name: 'La Liga',
+	},
+	bundesliga: {
+		primary: '#ae0014',  // deep red
+		secondary: '#1a0003',
+		border: '#7a000a',
+		pageBg: '#110002',
+		text: '#ffffff',
+		home: '#0d71db',
+		away: '#ffcccb',
+		accent: '#ffffff',
+		name: 'Bundesliga',
+	},
+	seriea: {
+		primary: '#1a1a2e',  // dark navy
+		secondary: '#16213e',
+		accent: '#0096ff',  // blue
+		border: '#0066cc',
+		text: '#0096ff',
+		home: '#6d0db7',
+		away: '#ff1a1a',
+		pageBg: '#0d0d1a',
+		name: 'Serie A',
+	},
+	ligue1: {
+		primary: '#003189',  // dark blue
+		secondary: '#002070',
+		accent: '#ffffff',  // white
+		border: '#0044cc',
+		text: '#ffffff',
+		home: '#0d71db',
+		away: '#ff1a1a',
+		pageBg: '#001040',
+		name: 'Ligue 1',
+	},
 	mls: {
-		primary:    '#001F5B',  // deep navy
-		secondary:  '#001444',
-		accent:     '#E2231A',  // MLS red
-		border:     '#002a7a',
-		text:       '#E2231A',
-		home:       '#4a90d9',
-		away:       '#ff6b6b',
-		pageBg:     '#000d33',
-		name:       'Major League Soccer',
+		primary: '#001F5B',  // deep navy
+		secondary: '#001444',
+		accent: '#E2231A',  // MLS red
+		border: '#002a7a',
+		text: '#E2231A',
+		home: '#4a90d9',
+		away: '#ff6b6b',
+		pageBg: '#000d33',
+		name: 'Major League Soccer',
 	},
 }
 
 const LEAGUE_COLORS = {
-    epl:        { bg: '#37003c', text: '#00ff85', border: '#00ff85' },
-    laliga:     { bg: '#003366', text: '#ff4500', border: '#ff4500' },
-    bundesliga: { bg: '#d3010c', text: '#ffffff', border: '#ffffff' },
-    seriea:     { bg: '#1a1a2e', text: '#0096ff', border: '#0096ff' },
-    ligue1:     { bg: '#003189', text: '#ffffff', border: '#ffffff' },
-    mls: 		{ bg: '#001F5B', text: '#E2231A', border: '#E2231A' },
+	epl: { bg: '#37003c', text: '#00ff85', border: '#00ff85' },
+	laliga: { bg: '#003366', text: '#ff4500', border: '#ff4500' },
+	bundesliga: { bg: '#d3010c', text: '#ffffff', border: '#ffffff' },
+	seriea: { bg: '#1a1a2e', text: '#0096ff', border: '#0096ff' },
+	ligue1: { bg: '#003189', text: '#ffffff', border: '#ffffff' },
+	mls: { bg: '#001F5B', text: '#E2231A', border: '#E2231A' },
 }
 
 export default function App() {
@@ -104,14 +104,14 @@ export default function App() {
 	const [lastUpdate, setLastUpdate] = useState(null)
 	const [selectedLeague, setSelectedLeague] = useState('epl')
 	const availableLeagues = ['epl', 'laliga', 'bundesliga', 'seriea', 'ligue1', 'mls']
-	const { isConnected: chatConnected, sendQuestion} = useChatWebSocket()
+	const { isConnected: chatConnected, sendQuestion } = useChatWebSocket()
 
 	const handleWebSocketMessage = useCallback((message) => {
 		setLastUpdate(message)
 	}, [])
 
 	const { isConnected: connected } = useWebSocket(handleWebSocketMessage)
-	
+
 	const handleSelectedGame = (gameId) => {
 		setSelectedGameId(gameId)
 		setActiveTab('match')
@@ -119,9 +119,9 @@ export default function App() {
 
 	useEffect(() => {
 		fetch(`${API}/health`)
-		.then(res => res.json())
-		.then(data => setApiStatus(data.api === 'ok' ? 'connected' : 'degraded'))
-		.catch(() => setApiStatus('unreachable'))
+			.then(res => res.json())
+			.then(data => setApiStatus(data.api === 'ok' ? 'connected' : 'degraded'))
+			.catch(() => setApiStatus('unreachable'))
 	}, [])
 
 	const theme = LEAGUE_THEMES[selectedLeague] || LEAGUE_THEMES.epl
@@ -139,98 +139,90 @@ export default function App() {
 
 	return (
 		<div className="min-h-screen transition-colors duration-300"
-    		style={{ backgroundColor: theme.pageBg, color: theme.accent }}
+			style={{ backgroundColor: theme.pageBg, color: theme.accent }}
 		>
 			<div className="sticky top-0 z-50">
 				{/* Header */}
 				<header style={{ backgroundColor: theme.primary, borderColor: theme.accent }}
 					className="border-b px-6 py-4 flex items-center justify-center relative transition-colors duration-300">
-				<h1 className="text-xl font-bold text-white">⚽ ScoreStream ⚽</h1>
+					<h1 className="text-xl font-bold text-white">⚽ ScoreStream ⚽</h1>
 
-				<div className='absolute right-6 flex items-center gap-2'>
-					{/* WebSocket connection indicator */}
-					<span className={`text-xs px-2 py-1 rounded font-medium ${
-						connected
+					<div className='absolute right-6 flex items-center gap-2'>
+						{/* WebSocket connection indicator */}
+						<span className={`text-xs px-2 py-1 rounded font-medium ${connected
 							? 'bg-[#00ff85] text-[#37003c]'
 							: 'bg-red-900 text-red-300'
-					}`}>
-						{connected ? '🟢 WebSocket Live' : '🔴 Reconnecting...'}
-					</span>
-					<span className={`text-sm px-2 py-1 rounded ${
-							apiStatus === 'connected' ? 'bg-[#00ff85] text-[#37003c] font-semibold' :
+							}`}>
+							{connected ? '🟢 WebSocket Live' : '🔴 Reconnecting...'}
+						</span>
+						<span className={`text-sm px-2 py-1 rounded ${apiStatus === 'connected' ? 'bg-[#00ff85] text-[#37003c] font-semibold' :
 							apiStatus === 'unreachable' ? 'bg-red-900 text-red-300' :
-							'bg-yellow-900 text-yellow-300'
-					}`}>
-						API: {apiStatus}
-					</span>
-				</div>
+								'bg-yellow-900 text-yellow-300'
+							}`}>
+							API: {apiStatus}
+						</span>
+					</div>
 				</header>
 
 				{/* Tab navigation */}
-				<nav style={{ backgroundColor: theme.primary, borderColor: theme.border }} 
+				<nav style={{ backgroundColor: theme.primary, borderColor: theme.border }}
 					className="border-b px-6 py-3 transition-colors duration-300">
 					<div className="flex flex-col items-center gap-3 py-1">
 
 						<div className='flex gap-1'>
 							<button
 								onClick={() => setActiveTab('scores')}
-								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-								activeTab === 'scores'
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'scores'
 									? 'border-[#00ff85] text-[#00ff85]'
 									: 'border-transparent text-purple-300 hover:text-white'
-								}`}
+									}`}
 							>
 								Scores
 							</button>
 							<button
 								onClick={() => setActiveTab('standings')}
-								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-								activeTab === 'standings'
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'standings'
 									? 'border-[#00ff85] text-[#00ff85]'
 									: 'border-transparent text-purple-300 hover:text-white'
-								}`}
+									}`}
 							>
 								Standings
 							</button>
 							{selectedLeague === 'ucl' && (
 								<button
 									onClick={() => setActiveTab('bracket')}
-									className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-									activeTab === 'bracket'
+									className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'bracket'
 										? 'border-[#00ff85] text-[#00ff85]'
 										: 'border-transparent text-purple-300 hover:text-white'
-									}`}
+										}`}
 								>
 									Bracket
 								</button>
 							)}
 							<button
 								onClick={() => setActiveTab('match')}
-								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-								activeTab === 'match'
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'match'
 									? 'border-[#00ff85] text-[#00ff85]'
 									: 'border-transparent text-purple-300 hover:text-white'
-								}`}
+									}`}
 							>
 								Match Details
 							</button>
 							<button
 								onClick={() => setActiveTab('chat')}
-								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-								activeTab === 'chat'
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'chat'
 									? 'border-[#00ff85] text-[#00ff85]'
 									: 'border-transparent text-purple-300 hover:text-white'
-								}`}
+									}`}
 							>
 								ScoreStream AI
 							</button>
 							<button
 								onClick={() => setActiveTab('pipeline')}
-								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${
-								activeTab === 'pipeline'
+								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'pipeline'
 									? 'border-[#00ff85] text-[#00ff85]'
 									: 'border-transparent text-purple-300 hover:text-white'
-								}`}
+									}`}
 							>
 								Pipeline Health
 							</button>
@@ -248,18 +240,18 @@ export default function App() {
 											onClick={() => setSelectedLeague(l)}
 											style={
 												isSelected ? {
-												backgroundColor: colors.bg,
-												color:           colors.text,
-												borderColor:     colors.border,
-												borderWidth:     '2px',
-												borderStyle:     'solid',
-											} : {
-												backgroundColor: 'transparent',
-												color:           '#c4b5fd',
-												borderColor:     '#ffffff',
-												borderWidth:     '2px',
-												borderStyle:     'solid',
-											}}
+													backgroundColor: colors.bg,
+													color: colors.text,
+													borderColor: colors.border,
+													borderWidth: '2px',
+													borderStyle: 'solid',
+												} : {
+													backgroundColor: 'transparent',
+													color: '#c4b5fd',
+													borderColor: '#ffffff',
+													borderWidth: '2px',
+													borderStyle: 'solid',
+												}}
 											className={`text-xs px-3 py-1 rounded-full font-medium capitalize transition-colors duration-200`}
 											onMouseEnter={e => {
 												if (!isSelected) {
@@ -298,23 +290,23 @@ export default function App() {
 
 			{/* Tab content */}
 			<main className="p-6 transition-colors duration-300"
-    			style={{ backgroundColor: theme.pageBg }}
+				style={{ backgroundColor: theme.pageBg }}
 			>
-			{activeTab === 'scores' && (
-				<ScoresTab onSelectGame={handleSelectedGame} lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />
-			)}
-			{activeTab === 'standings' && <StandingsTab lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />}
-			{activeTab === 'bracket' && selectedLeague === 'ucl' && (
-				<BracketTab theme={theme} onSelectGame={(gameId) => {
-					setSelectedGameId(gameId)
-					setActiveTab('match')
-				}} />
-			)}
-			{activeTab === 'match' && (
-				<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} theme={theme} league={selectedLeague} />
-			)}
-			{activeTab === 'chat' && <ChatTab theme={theme} isConnected={chatConnected} sendQuestion={sendQuestion} />}
-			{activeTab === 'pipeline' && <PipelineTab active={activeTab === 'pipeline'} />}
+				{activeTab === 'scores' && (
+					<ScoresTab onSelectGame={handleSelectedGame} lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />
+				)}
+				{activeTab === 'standings' && <StandingsTab lastUpdate={lastUpdate} league={selectedLeague} theme={theme} />}
+				{activeTab === 'bracket' && selectedLeague === 'ucl' && (
+					<BracketTab theme={theme} onSelectGame={(gameId) => {
+						setSelectedGameId(gameId)
+						setActiveTab('match')
+					}} />
+				)}
+				{activeTab === 'match' && (
+					<MatchesTab gameId={selectedGameId} onBack={() => setActiveTab('scores')} theme={theme} league={selectedLeague} lastUpdate={lastUpdate} />
+				)}
+				{activeTab === 'chat' && <ChatTab theme={theme} isConnected={chatConnected} sendQuestion={sendQuestion} />}
+				{activeTab === 'pipeline' && <PipelineTab active={activeTab === 'pipeline'} />}
 			</main>
 
 		</div>

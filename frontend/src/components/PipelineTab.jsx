@@ -15,8 +15,8 @@ function ComponentCard({ name, component, theme, lastRefresh }) {
 
     return (
         <div
-            style={{ 
-                backgroundColor: theme?.secondary, 
+            style={{
+                backgroundColor: theme?.secondary,
                 borderColor: component.state === 'ALARM' ? '#ef4444' : theme?.border,
                 borderWidth: component.state === 'ALARM' ? '1.5px' : '1px',
             }}
@@ -43,26 +43,28 @@ function ComponentCard({ name, component, theme, lastRefresh }) {
             )}
 
             {/* Producer last poll */}
-            {component.last_poll && (
-				<div className="flex flex-col gap-1">
-					<div className="flex items-center gap-1.5">
-						<span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>
-						<span className="text-xs font-medium" style={{ color: theme?.accent }}>
-							Last poll {new Date(component.last_poll + 'Z').toLocaleTimeString('en-US', {
-								hour: 'numeric',
-								minute: '2-digit',
-								second: '2-digit',
-								timeZone: 'America/New_York',
-							})} EDT
-						</span>
-					</div>
-					{component.stale && (
-						<span className="text-xs text-yellow-400 flex items-center gap-1">
-							⚠ Stale — {Math.floor(component.poll_age_seconds / 60)}m ago
-						</span>
-					)}
-				</div>
-			)}
+            {component.last_poll && (() => {
+                // Strip microseconds to 3 decimal places for broad JS compatibility
+                const normalized = component.last_poll.replace(/(\.\d{3})\d+/, '$1')
+                const date = new Date(normalized)
+                const display = isNaN(date.getTime())
+                    ? component.last_poll
+                    : date.toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        timeZone: 'America/New_York',
+                    }) + ' EDT'
+
+                return (
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        <span className="text-xs font-medium" style={{ color: theme?.accent }}>
+                            Last poll {display}
+                        </span>
+                    </div>
+                )
+            })()}
 
             {/* Divider */}
             <div style={{ borderColor: theme?.border }} className="border-t opacity-30" />
@@ -71,10 +73,10 @@ function ComponentCard({ name, component, theme, lastRefresh }) {
             <div className="flex flex-col gap-0.5">
                 {component.updated && (
                     <div className="flex justify-between items-center">
-                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                        <span className="text-xs opacity-80" style={{ color: theme?.text }}>
                             State changed
                         </span>
-                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                        <span className="text-xs opacity-80" style={{ color: theme?.text }}>
                             {new Date(component.updated).toLocaleTimeString('en-US', {
                                 hour: 'numeric',
                                 minute: '2-digit',
@@ -85,10 +87,10 @@ function ComponentCard({ name, component, theme, lastRefresh }) {
                 )}
                 {lastRefresh && (
                     <div className="flex justify-between items-center">
-                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                        <span className="text-xs opacity-80" style={{ color: theme?.text }}>
                             Last checked
                         </span>
-                        <span className="text-xs opacity-40" style={{ color: theme?.text }}>
+                        <span className="text-xs opacity-80" style={{ color: theme?.text }}>
                             {lastRefresh.toLocaleTimeString('en-US', {
                                 hour: 'numeric',
                                 minute: '2-digit',
@@ -104,14 +106,14 @@ function ComponentCard({ name, component, theme, lastRefresh }) {
 }
 
 export default function PipelineTab({ theme }) {
-    const [health, setHealth]   = useState(null)
+    const [health, setHealth] = useState(null)
     const [loading, setLoading] = useState(true)
-    const [error, setError]     = useState(null)
+    const [error, setError] = useState(null)
     const [lastRefresh, setLastRefresh] = useState(null)
 
     const fetchHealth = useCallback(async () => {
         try {
-            const res  = await fetch(`${API}/health/pipeline`)
+            const res = await fetch(`${API}/health/pipeline`)
             const data = await res.json()
             setHealth(data)
             setLastRefresh(new Date())
@@ -217,34 +219,34 @@ export default function PipelineTab({ theme }) {
 
             {/* Component groups */}
             {groups.map(group => (
-				<div key={group.label}>
-					<div className="flex items-center gap-3 mb-3">
-						<h3
-							className="text-xs font-bold uppercase tracking-widest"
-							style={{ color: theme?.accent }}
-						>
-							{group.label}
-						</h3>
-						<div 
-							className="flex-1 h-px opacity-20"
-							style={{ backgroundColor: theme?.accent }}
-						/>
-					</div>
-					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-						{group.keys.map(key => (
-							components[key] && (
-								<ComponentCard
-									key={key}
-									name={key}
-									component={components[key]}
-									theme={theme}
-									lastRefresh={lastRefresh}
-								/>
-							)
-						))}
-					</div>
-				</div>
-			))}
+                <div key={group.label}>
+                    <div className="flex items-center gap-3 mb-3">
+                        <h3
+                            className="text-xs font-bold uppercase tracking-widest"
+                            style={{ color: theme?.accent }}
+                        >
+                            {group.label}
+                        </h3>
+                        <div
+                            className="flex-1 h-px opacity-20"
+                            style={{ backgroundColor: theme?.accent }}
+                        />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {group.keys.map(key => (
+                            components[key] && (
+                                <ComponentCard
+                                    key={key}
+                                    name={key}
+                                    component={components[key]}
+                                    theme={theme}
+                                    lastRefresh={lastRefresh}
+                                />
+                            )
+                        ))}
+                    </div>
+                </div>
+            ))}
 
             {/* Footer note */}
             <p className="text-xs text-center opacity-40" style={{ color: theme?.text }}>
