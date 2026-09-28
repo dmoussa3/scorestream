@@ -10,23 +10,10 @@ class NetworkStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        self.vpc = ec2.Vpc(
+        self.vpc = ec2.Vpc.from_lookup(
             self,
             "ScoreStreamVPC",
-            max_azs=2,
-            nat_gateways=1,
-            subnet_configuration=[
-                ec2.SubnetConfiguration(
-                    name="public",
-                    subnet_type=ec2.SubnetType.PUBLIC,
-                    cidr_mask=24,
-                ),
-                ec2.SubnetConfiguration(
-                    name="private",
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
-                    cidr_mask=24,
-                ),
-            ],
+            vpc_id="vpc-00c80fe8cec5b36d6"
         )
 
         self.sg_alb = ec2.SecurityGroup(
@@ -53,27 +40,24 @@ class NetworkStack(Stack):
             allow_all_outbound=True,
         )
 
-        self.sg_rds = ec2.SecurityGroup(
-            self, 
+        self.sg_rds = ec2.SecurityGroup.from_security_group_id(
+            self,
             "SgRds",
-            vpc=self.vpc,
-            description="RDS PostgreSQL security group",
+            security_group_id="sg-017a1ece3de184b22",
             allow_all_outbound=False,
         )
 
-        self.sg_redis = ec2.SecurityGroup(
-            self, 
+        self.sg_redis = ec2.SecurityGroup.from_security_group_id(
+            self,
             "SgRedis",
-            vpc=self.vpc,
-            description="Elasticache Redis security group",
+            security_group_id="sg-09c59cd5f59db3bd4",
             allow_all_outbound=False,
         )
 
-        self.sg_msk = ec2.SecurityGroup(
+        self.sg_msk = ec2.SecurityGroup.from_security_group_id(
             self, 
             "SgMsk",
-            vpc=self.vpc,
-            description="MSK Kafka security group",
+            security_group_id="sg-04161e15d7ee229b0",
             allow_all_outbound=False,
         )
 
