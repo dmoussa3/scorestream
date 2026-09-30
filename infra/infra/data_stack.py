@@ -33,22 +33,38 @@ class DataStack(Stack):
         # instance_endpoint_address=os.environ.get('RDS_ENDPOINT', ''),
         # instance_resource_id=os.environ.get('RDS_RESOURCE_ID', ''),
 
-        self.rds_instance = rds.DatabaseInstance.from_database_instance_attributes(
-            self,
-            "ScoreStreamRDS",
-            instance_identifier="scorestream-rds",
-            instance_endpoint_address="scorestream-rds.csx0y2syktme.us-east-1.rds.amazonaws.com",
-            port=5432,
+        self.rds_instance = rds.DatabaseInstance(
+            self, "ScoreStreamRDS",
+            engine=rds.DatabaseInstanceEngine.postgres(
+                version=rds.PostgresEngineVersion.VER_15
+            ),
+            instance_type=ec2.InstanceType.of(
+                ec2.InstanceClass.BURSTABLE3,
+                ec2.InstanceSize.MICRO
+            ),
+            vpc=network.vpc,
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+            ),
+            subnet_group=rds_subnet_group,
             security_groups=[network.sg_rds],
-            instance_resource_id="db-JTPYKPYBA7FTSQYCPTXJTJM4IA",
-            engine=rds.DatabaseInstanceEngine.postgres(version=rds.PostgresEngineVersion.VER_15)
+            database_name="scorestream",
+            instance_identifier="scorestream-rds",
+            credentials=rds.Credentials.from_generated_secret(
+                username="scorestream",
+                secret_name="scorestream/rds-credentials"
+            ),
+            multi_az=False,
+            allocated_storage=20,
+            max_allocated_storage=100,
+            removal_policy=RemovalPolicy.RETAIN,
+            storage_encrypted=True,
+            backup_retention=Duration.days(7),
+            deletion_protection=True,
+            publicly_accessible=False
         )
 
-        self.secret_rds = secretsmanager.Secret.from_secret_name_v2(
-            self,
-            "RDSSecret",
-            secret_name="scorestream/rds-credentials"
-        )
+        self.secret_rds = self.rds_instance.secret
 
         redis_subnet_group = elasticache.CfnSubnetGroup(
             self,

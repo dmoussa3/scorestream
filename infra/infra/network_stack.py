@@ -6,14 +6,26 @@ from aws_cdk import (
 from constructs import Construct
 
 class NetworkStack(Stack):
-
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        self.vpc = ec2.Vpc.from_lookup(
+        self.vpc = ec2.Vpc(
             self,
             "ScoreStreamVPC",
-            vpc_id="vpc-00c80fe8cec5b36d6"
+            max_azs=2,
+            nat_gateways=0,
+            subnet_configuration=[
+                ec2.SubnetConfiguration(
+                    name="public",
+                    subnet_type=ec2.SubnetType.PUBLIC,
+                    cidr_mask=24,
+                ),
+                ec2.SubnetConfiguration(
+                    name="private",
+                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    cidr_mask=24,
+                ),
+            ],
         )
 
         self.sg_alb = ec2.SecurityGroup(
@@ -40,24 +52,27 @@ class NetworkStack(Stack):
             allow_all_outbound=True,
         )
 
-        self.sg_rds = ec2.SecurityGroup.from_security_group_id(
-            self,
+        self.sg_rds = ec2.SecurityGroup(
+            self, 
             "SgRds",
-            security_group_id="sg-017a1ece3de184b22",
+            vpc=self.vpc,
+            description="RDS PostgreSQL security group",
             allow_all_outbound=False,
         )
 
-        self.sg_redis = ec2.SecurityGroup.from_security_group_id(
-            self,
+        self.sg_redis = ec2.SecurityGroup(
+            self, 
             "SgRedis",
-            security_group_id="sg-09c59cd5f59db3bd4",
+            vpc=self.vpc,
+            description="Elasticache Redis security group",
             allow_all_outbound=False,
         )
 
-        self.sg_msk = ec2.SecurityGroup.from_security_group_id(
+        self.sg_msk = ec2.SecurityGroup(
             self, 
             "SgMsk",
-            security_group_id="sg-04161e15d7ee229b0",
+            vpc=self.vpc,
+            description="MSK Kafka security group",
             allow_all_outbound=False,
         )
 
@@ -66,6 +81,14 @@ class NetworkStack(Stack):
             "SgGlue",
             vpc=self.vpc,
             description="Glue streaming job security group",
+            allow_all_outbound=True,
+        )
+
+        self.sg_scheduler = ec2.SecurityGroup(
+            self,
+            "SgScheduler",
+            vpc=self.vpc,
+            description="Scheduler Fargate task security group",
             allow_all_outbound=True,
         )
 
@@ -153,14 +176,6 @@ class NetworkStack(Stack):
             peer=self.sg_glue,
             connection=ec2.Port.all_traffic(),
             description="Glue self-reference required for VPC job",
-        )
-
-        self.sg_scheduler = ec2.SecurityGroup(
-            self,
-            "SgScheduler",
-            vpc=self.vpc,
-            description="Scheduler Fargate task security group",
-            allow_all_outbound=True,
         )
 
         self.sg_rds.add_ingress_rule(

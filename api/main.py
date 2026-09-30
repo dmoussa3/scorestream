@@ -172,6 +172,14 @@ Note on leagues:
 - MLS team names use their full official ESPN names (e.g. 'Los Angeles FC', 'Inter Miami CF', 'D.C. United')
 - For conference-specific queries, always include AND group_name = 'Eastern Conference' or AND group_name = 'Western Conference'
 
+Note on time display:
+- All start_time values are stored as TIMESTAMPTZ (timestamp with timezone) in UTC
+- Always convert start_time to Eastern Time when displaying to users
+- Use: start_time AT TIME ZONE 'America/New_York' AS start_time_eastern
+- Display times as Eastern Time (ET) not UTC
+- Never show raw UTC times to users
+- Do NOT use double conversion like AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York' — this shifts the time incorrectly
+
 Note on goal classification:
 - There is no explicit "open play" flag — it is DERIVED, not stored directly
 - A goal is "open play" when BOTH own_goal = false AND penalty_goal = false
@@ -502,6 +510,19 @@ AND (home_team_name ILIKE '%Inter Miami%' OR away_team_name ILIKE '%Inter Miami%
 AND status IN ('STATUS_FULL_TIME', 'STATUS_FINAL_AET', 'STATUS_FINAL_PEN')
 ORDER BY start_time DESC
 LIMIT 5;
+
+-- What are the upcoming MLS games?
+SELECT 
+    home_team_name,
+    away_team_name,
+    (start_time AT TIME ZONE 'America/New_York') AS start_time_eastern,
+    status
+FROM games
+WHERE league = 'mls'
+AND status = 'STATUS_SCHEDULED'
+AND start_time > NOW()
+ORDER BY start_time ASC
+LIMIT 10;
 
 -- Top scorers in MLS this season
 SELECT s.player_name, s.team_name, s.goals, s.assists
