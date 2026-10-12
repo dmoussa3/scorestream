@@ -13,7 +13,7 @@ class NetworkStack(Stack):
             self,
             "ScoreStreamVPC",
             max_azs=2,
-            nat_gateways=0,
+            nat_gateways=1,
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="public",
@@ -100,88 +100,86 @@ class NetworkStack(Stack):
             allow_all_outbound=True,
         )
 
-        self.sg_rds.add_ingress_rule(
-            peer=self.sg_bastion,
-            connection=ec2.Port.tcp(5432),
-            description="PostgreSQL port from Bastion host",
+        # Ingress rules for security groups
+        self.sg_alb.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(443),
+            description="HTTPS from internet",
         )
-
         self.sg_alb.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(80),
             description="HTTP from internet",
         )
 
-        # self.sg_alb.add_ingress_rule(
-        #     peer=ec2.Peer.any_ipv4(),
-        #     connection=ec2.Port.tcp(80),
-        #     description="HTTP from internet for redirect",
-        # )
-
         self.sg_api.add_ingress_rule(
             peer=self.sg_alb,
             connection=ec2.Port.tcp(8000),
-            description="FastAPI port from ALB",
+            description="FastAPI from ALB",
         )
 
         self.sg_rds.add_ingress_rule(
             peer=self.sg_api,
             connection=ec2.Port.tcp(5432),
-            description="PostgreSQL port from API ECS task",
+            description="PostgreSQL from API",
         )
 
         self.sg_rds.add_ingress_rule(
             peer=self.sg_producer,
             connection=ec2.Port.tcp(5432),
-            description="PostgreSQL port from Producer ECS task",
+            description="PostgreSQL from producer",
         )
 
         self.sg_rds.add_ingress_rule(
             peer=self.sg_glue,
             connection=ec2.Port.tcp(5432),
-            description="PostgreSQL port from Glue job",
-        )
-
-        self.sg_redis.add_ingress_rule(
-            peer=self.sg_api,
-            connection=ec2.Port.tcp(6379),
-            description="Redis port from API ECS task",
-        )
-
-        self.sg_redis.add_ingress_rule(
-            peer=self.sg_glue,
-            connection=ec2.Port.tcp(6379),
-            description="Redis port from Glue job",
-        )
-
-        self.sg_msk.add_ingress_rule(
-            peer=self.sg_producer,
-            connection=ec2.Port.tcp(9098),
-            description="MSK IAM auth from Producer ECS task",
-        )
-
-        self.sg_msk.add_ingress_rule(
-            peer=self.sg_glue,
-            connection=ec2.Port.tcp(9098),
-            description="MSK IAM auth from Glue job",
-        )
-
-        self.sg_msk.add_ingress_rule(
-            peer=self.sg_msk,
-            connection=ec2.Port.tcp(2181),
-            description="ZooKeeper Internal",
-        )
-
-        self.sg_glue.add_ingress_rule(
-            peer=self.sg_glue,
-            connection=ec2.Port.all_traffic(),
-            description="Glue self-reference required for VPC job",
+            description="PostgreSQL from Glue",
         )
 
         self.sg_rds.add_ingress_rule(
             peer=self.sg_scheduler,
             connection=ec2.Port.tcp(5432),
-            description="PostgreSQL port from Scheduler ECS task",
+            description="PostgreSQL from scheduler",
+        )
+
+        self.sg_rds.add_ingress_rule(
+            peer=self.sg_bastion,
+            connection=ec2.Port.tcp(5432),
+            description="PostgreSQL from bastion",
+        )
+        self.sg_redis.add_ingress_rule(
+            peer=self.sg_api,
+            connection=ec2.Port.tcp(6379),
+            description="Redis from API",
+        )
+
+        self.sg_redis.add_ingress_rule(
+            peer=self.sg_glue,
+            connection=ec2.Port.tcp(6379),
+            description="Redis from Glue",
+        )
+        self.sg_msk.add_ingress_rule(
+            peer=self.sg_producer,
+            connection=ec2.Port.tcp(9098),
+            description="MSK IAM from producer",
+        )
+
+        self.sg_msk.add_ingress_rule(
+            peer=self.sg_glue,
+            connection=ec2.Port.tcp(9098),
+            description="MSK IAM from Glue",
+        )
+
+        self.sg_msk.add_ingress_rule(
+            peer=self.sg_msk,
+            connection=ec2.Port.tcp(2181),
+            description="ZooKeeper internal",
+        )
+        
+        self.sg_glue.add_ingress_rule(
+            peer=self.sg_glue,
+            connection=ec2.Port.all_traffic(),
+            description="Glue self-reference",
         )   
 
         self.secret_anthropic = secretsmanager.Secret.from_secret_name_v2(

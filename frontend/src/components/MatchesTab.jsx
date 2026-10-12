@@ -231,7 +231,7 @@ export default function MatchesTab({ gameId, onBack, theme = DEFAULT_THEME, leag
                 {/* Status */}
                 <div
                     className="text-center text-sm mb-4 uppercase tracking-wider"
-                    style={{ color: theme.accent }}
+                    style={{ color: theme.text }}
                 >
                     {isLive ? secondsDisplay(elapsedSeconds, game?.period) : game.status_detail}
                 </div>
@@ -510,7 +510,7 @@ export default function MatchesTab({ gameId, onBack, theme = DEFAULT_THEME, leag
             {(!isLive && goalsArray.length === 0) && (
                 <div
                     className="border rounded-lg p-6 text-center text-sm"
-                    style={{ borderColor: theme.border, backgroundColor: theme.secondary, color: theme.accent }}
+                    style={{ borderColor: theme.border, backgroundColor: theme.secondary, color: theme.text }}
                 >
                     No goal events recorded for this match.
                 </div>

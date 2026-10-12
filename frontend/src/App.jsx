@@ -44,7 +44,7 @@ const LEAGUE_THEMES = {
 	},
 	bundesliga: {
 		primary: '#ae0014',  // deep red
-		secondary: '#1a0003',
+		secondary: '#D10214',
 		border: '#7a000a',
 		pageBg: '#110002',
 		text: '#ffffff',
@@ -54,25 +54,25 @@ const LEAGUE_THEMES = {
 		name: 'Bundesliga',
 	},
 	seriea: {
-		primary: '#1a1a2e',  // dark navy
-		secondary: '#16213e',
-		accent: '#0096ff',  // blue
-		border: '#0066cc',
-		text: '#0096ff',
-		home: '#6d0db7',
-		away: '#ff1a1a',
-		pageBg: '#0d0d1a',
+		primary: '#1A1659',  // deep navy purple — dominant background
+		secondary: '#0032A0',  // classic Serie A blue — card backgrounds
+		accent: '#0578FF',  // bright blue — highlights and active states
+		border: '#0032A0',  // matches secondary for subtle card edges
+		text: '#E2E2E2',  // light grey — easier on the eyes than pure white
+		home: '#00A346',  // Serie A green
+		away: '#DB052B',  // Serie A red
+		pageBg: '#0f0e3d',  // darker than primary for page background
 		name: 'Serie A',
 	},
 	ligue1: {
-		primary: '#003189',  // dark blue
-		secondary: '#002070',
-		accent: '#ffffff',  // white
-		border: '#0044cc',
-		text: '#ffffff',
+		primary: '#091C3E',  // official Ligue 1 deep navy
+		secondary: '#0d2548',  // slightly lighter navy
+		accent: '#CDFB0A',  // official Ligue 1 yellow-green
+		border: '#1a3a6e',  // muted navy border
+		text: '#CDFB0A',  // yellow-green text matches accent
 		home: '#0d71db',
-		away: '#ff1a1a',
-		pageBg: '#001040',
+		away: '#ffffff',  // white away dot — contrasts against navy
+		pageBg: '#060f24',  // near black navy
 		name: 'Ligue 1',
 	},
 	mls: {
@@ -91,9 +91,9 @@ const LEAGUE_THEMES = {
 const LEAGUE_COLORS = {
 	epl: { bg: '#37003c', text: '#00ff85', border: '#00ff85' },
 	laliga: { bg: '#003366', text: '#ff4500', border: '#ff4500' },
-	bundesliga: { bg: '#d3010c', text: '#ffffff', border: '#ffffff' },
+	bundesliga: { bg: '#ffffff', text: '#D10214', border: '#ffffff' },
 	seriea: { bg: '#1a1a2e', text: '#0096ff', border: '#0096ff' },
-	ligue1: { bg: '#003189', text: '#ffffff', border: '#ffffff' },
+	ligue1: { bg: '#091C3E', text: '#CDFB0A', border: '#ffffff' },
 	mls: { bg: '#001F5B', text: '#E2231A', border: '#E2231A' },
 }
 
@@ -173,18 +173,26 @@ export default function App() {
 							<button
 								onClick={() => setActiveTab('scores')}
 								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'scores'
-									? 'border-[#00ff85] text-[#00ff85]'
-									: 'border-transparent text-purple-300 hover:text-white'
+									? 'border-b-2'
+									: 'border-transparent hover:text-white'
 									}`}
+								style={activeTab === 'scores'
+									? { color: theme?.accent, borderColor: theme?.accent }
+									: { color: theme?.text || '#ffffff', opacity: 0.6 }
+								}
 							>
 								Scores
 							</button>
 							<button
 								onClick={() => setActiveTab('standings')}
 								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'standings'
-									? 'border-[#00ff85] text-[#00ff85]'
-									: 'border-transparent text-purple-300 hover:text-white'
+									? 'border-b-2'
+									: 'border-transparent hover:text-white'
 									}`}
+								style={activeTab === 'standings'
+									? { color: theme?.accent, borderColor: theme?.accent }
+									: { color: theme?.text || '#ffffff', opacity: 0.6 }
+								}
 							>
 								Standings
 							</button>
@@ -192,9 +200,13 @@ export default function App() {
 								<button
 									onClick={() => setActiveTab('bracket')}
 									className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'bracket'
-										? 'border-[#00ff85] text-[#00ff85]'
-										: 'border-transparent text-purple-300 hover:text-white'
+										? 'border-b-2'
+										: 'border-transparent hover:text-white'
 										}`}
+									style={activeTab === 'bracket'
+										? { color: theme?.accent, borderColor: theme?.accent }
+										: { color: theme?.text || '#ffffff', opacity: 0.6 }
+									}
 								>
 									Bracket
 								</button>
@@ -202,27 +214,39 @@ export default function App() {
 							<button
 								onClick={() => setActiveTab('match')}
 								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'match'
-									? 'border-[#00ff85] text-[#00ff85]'
-									: 'border-transparent text-purple-300 hover:text-white'
+									? 'border-b-2'
+									: 'border-transparent hover:text-white'
 									}`}
+								style={activeTab === 'match'
+									? { color: theme?.accent, borderColor: theme?.accent }
+									: { color: theme?.text || '#ffffff', opacity: 0.6 }
+								}
 							>
 								Match Details
 							</button>
 							<button
 								onClick={() => setActiveTab('chat')}
 								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'chat'
-									? 'border-[#00ff85] text-[#00ff85]'
-									: 'border-transparent text-purple-300 hover:text-white'
+									? 'border-b-2'
+									: 'border-transparent hover:text-white'
 									}`}
+								style={activeTab === 'chat'
+									? { color: theme?.accent, borderColor: theme?.accent }
+									: { color: theme?.text || '#ffffff', opacity: 0.6 }
+								}
 							>
 								ScoreStream AI
 							</button>
 							<button
 								onClick={() => setActiveTab('pipeline')}
 								className={`px-4 py-1 text-sm font-medium capitalize border-b-2 transition-colors ${activeTab === 'pipeline'
-									? 'border-[#00ff85] text-[#00ff85]'
-									: 'border-transparent text-purple-300 hover:text-white'
+									? 'border-b-2'
+									: 'border-transparent hover:text-white'
 									}`}
+								style={activeTab === 'pipeline'
+									? { color: theme?.accent, borderColor: theme?.accent }
+									: { color: theme?.text || '#ffffff', opacity: 0.6 }
+								}
 							>
 								Pipeline Health
 							</button>
@@ -246,9 +270,9 @@ export default function App() {
 													borderWidth: '2px',
 													borderStyle: 'solid',
 												} : {
-													backgroundColor: 'transparent',
-													color: '#c4b5fd',
-													borderColor: '#ffffff',
+													backgroundColor: `${colors.bg}22`,
+													color: colors.text,
+													borderColor: `${colors.accent}`,
 													borderWidth: '2px',
 													borderStyle: 'solid',
 												}}
@@ -262,9 +286,10 @@ export default function App() {
 											}}
 											onMouseLeave={e => {
 												if (!isSelected) {
-													e.currentTarget.style.backgroundColor = 'transparent'
-													e.currentTarget.style.color = '#c4b5fd'
-													e.currentTarget.style.borderColor = '#ffffff'
+													e.currentTarget.style.backgroundColor = `${colors.bg}22`
+													e.currentTarget.style.color = colors.text
+													e.currentTarget.style.borderColor = `${colors.accent}`
+													e.currentTarget.style.opacity = '1'
 												}
 											}}
 										>

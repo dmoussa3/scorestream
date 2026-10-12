@@ -464,6 +464,7 @@ class ComputeStack(Stack):
         )
 
         data.grant_secrets_read(scheduler_task_role)
+        data.grant_glue_bucket_access(scheduler_task_role)
 
         scheduler_task_role.add_to_policy(
             iam.PolicyStatement(
@@ -516,7 +517,7 @@ class ComputeStack(Stack):
             image=ecs.ContainerImage.from_ecr_repository(scheduler_repo, tag="latest"),
             environment={
                 "AWS_DEFAULT_REGION": "us-east-1",
-                "ARCHIVE BUCKET": f"scorestream-glue-{self.account}",
+                "ARCHIVE_BUCKET": f"scorestream-glue-{self.account}",
             },
             secrets={
                 "DB_HOST": ecs.Secret.from_secrets_manager(data.secret_rds, field="host"),

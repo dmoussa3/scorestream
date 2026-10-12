@@ -1,0 +1,95 @@
+version: 2
+
+models:
+  - name: fct_goals
+    description: "One row per goal event enriched with game context"
+    columns:
+      - name: goal_id
+        description: "Primary key — maps to goals.id"
+        tests:
+          - not_null
+          - unique
+      - name: game_id
+        tests:
+          - not_null
+      - name: league
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["epl", "laliga", "bundesliga", "seriea", "ligue1", "mls"]
+      - name: goal_category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Open Play", "Penalty", "Own Goal"]
+      - name: player_name
+        tests:
+          - not_null
+      - name: scoring_team
+        tests:
+          - not_null
+
+  - name: fct_games
+    description: "One row per completed match with derived metrics"
+    columns:
+      - name: game_id
+        description: "Primary key"
+        tests:
+          - not_null
+          - unique
+      - name: league
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["epl", "laliga", "bundesliga", "seriea", "ligue1", "mls"]
+      - name: result_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["home_win", "away_win", "draw"]
+      - name: total_goals
+        tests:
+          - not_null
+
+  - name: dim_teams
+    description: "Current snapshot of all teams with standings data"
+    columns:
+      - name: team_id
+        tests:
+          - not_null
+      - name: team_name
+        tests:
+          - not_null
+      - name: league
+        tests:
+          - not_null
+      - name: points
+        tests:
+          - not_null
+
+  - name: mart_player_stats
+    description: "Aggregated player statistics combining season stats and match goals"
+    columns:
+      - name: player_id
+        tests:
+          - not_null
+      - name: goals
+        tests:
+          - not_null
+      - name: assists
+        tests:
+          - not_null
+
+  - name: mart_league_summary
+    description: "One row per league with aggregate match and goal metrics"
+    columns:
+      - name: league
+        tests:
+          - not_null
+          - unique
+      - name: matches_played
+        tests:
+          - not_null
+      - name: total_goals
+        tests:
+          - not_null

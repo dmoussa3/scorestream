@@ -31,6 +31,8 @@ import redis.asyncio as aioredis
 import boto3
 from botocore.exceptions import ClientError
 
+from api.routers.analytics import router as analytics_router
+
 # ── Config ───────────────────────────────────────────────────────────
 DB_CONFIG = {
     "host":     os.getenv("DB_HOST", "localhost"),
@@ -754,6 +756,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(analytics_router)
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter

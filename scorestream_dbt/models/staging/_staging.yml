@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: stg_scorestream__games
+    description: "Cleaned and renamed games from the ESPN raw feed"
+    columns:
+      - name: game_id
+        description: "Primary key — unique ESPN game identifier"
+        tests:
+          - not_null
+          - unique
+      - name: league
+        description: "Competition identifier"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["epl", "laliga", "bundesliga", "seriea", "ligue1", "mls"]
+      - name: status
+        description: "ESPN game status string"
+        tests:
+          - not_null
+      - name: home_id
+        tests:
+          - not_null
+      - name: away_id
+        tests:
+          - not_null
+
+  - name: stg_scorestream__goals
+    description: "Cleaned goal events joined-ready for fact table"
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_scorestream__games')
+              field: game_id
+      - name: goal_category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Open Play", "Penalty", "Own Goal"]
+      - name: player_id
+        tests:
+          - not_null
+
+  - name: stg_scorestream__standings
+    description: "Current league standings per team per season"
+    columns:
+      - name: team_id
+        tests:
+          - not_null
+      - name: league
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["epl", "laliga", "bundesliga", "seriea", "ligue1", "mls"]
+      - name: season
+        tests:
+          - not_null
+      - name: points
+        tests:
+          - not_null
+
+  - name: stg_scorestream__season_stats
+    description: "Seasonal player statistics per league"
+    columns:
+      - name: player_id
+        tests:
+          - not_null
+      - name: league
+        tests:
+          - not_null

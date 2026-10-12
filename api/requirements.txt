@@ -1,6 +1,6 @@
 fastapi==0.110.0
 uvicorn==0.29.0
-psycopg2-binary==2.9.9
+psycopg2-binary>=2.9.9
 redis
 kafka-python==2.0.2
 slowapi
@@ -8,3 +8,5 @@ redis[asyncio]==5.0.3
 websockets
 anthropic
 boto3>=1.26.0
+snowflake-connector-python
+api

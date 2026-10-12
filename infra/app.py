@@ -4,6 +4,7 @@ import os
 import aws_cdk as cdk
 
 from infra.network_stack import NetworkStack
+from infra.rds_stack import RdsStack
 from infra.data_stack import DataStack
 from infra.msk_stack import MskStack
 from infra.compute_stack import ComputeStack
@@ -18,7 +19,8 @@ env=cdk.Environment(
 app = cdk.App()
 
 network_stack = NetworkStack(app, "NetworkStack", env=env)
-data_stack = DataStack(app, "DataStack", network=network_stack, env=env)
+rds_stack = RdsStack(app, "RdsStack", network=network_stack, env=env)
+data_stack = DataStack(app, "DataStack", network=network_stack, rds=rds_stack, env=env)
 msk_stack = MskStack(app, "MskStack", network=network_stack, env=env)
 compute_stack = ComputeStack(app, "ComputeStack", network=network_stack, data=data_stack, msk=msk_stack, env=env)
 edge_stack = EdgeStack(app, "EdgeStack", compute=compute_stack, env=env)

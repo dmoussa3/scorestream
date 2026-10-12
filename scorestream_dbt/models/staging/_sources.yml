@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: scorestream_raw
+    database: SCORESTREAM
+    schema: RAW
+    tables:
+      - name: games
+        config:
+          freshness:
+            warn_after: { count: 25, period: hour }
+            error_after: { count: 49, period: hour }
+        loaded_at_field: last_updated
+      - name: goals
+      - name: standings
+      - name: season_stats

@@ -1,70 +1,24 @@
 from aws_cdk import (
     Stack,
     aws_ec2 as ec2,
-    aws_rds as rds,
     aws_s3 as s3,
-    aws_iam as iam,
     aws_elasticache as elasticache,
     RemovalPolicy,
     aws_secretsmanager as secretsmanager,
-    Duration,
-    SecretValue
 )
 from constructs import Construct
 from infra.network_stack import NetworkStack
+from infra.rds_stack import RdsStack
 
 class DataStack(Stack):
-    def __init__(self, scope: Construct, construct_id: str, network: NetworkStack, **kwargs) -> None:
+    def __init__(self, scope: Construct, construct_id: str, network: NetworkStack, rds: RdsStack, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         self.network = network
-
-        rds_subnet_group = rds.SubnetGroup(
-            self,
-            "RDSSubnetGroup",
-            description="ScoreStream RDS Subnet group",
-            vpc=network.vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
-            removal_policy=RemovalPolicy.RETAIN
-        )
-
-        # On first deploy, use rds.DatabaseInstance(...) to create fresh
-        # On subsequent deploys after manual retention, import existing instance:
-        # instance_endpoint_address=os.environ.get('RDS_ENDPOINT', ''),
-        # instance_resource_id=os.environ.get('RDS_RESOURCE_ID', ''),
-
-        self.rds_instance = rds.DatabaseInstance(
-            self, "ScoreStreamRDS",
-            engine=rds.DatabaseInstanceEngine.postgres(
-                version=rds.PostgresEngineVersion.VER_15
-            ),
-            instance_type=ec2.InstanceType.of(
-                ec2.InstanceClass.BURSTABLE3,
-                ec2.InstanceSize.MICRO
-            ),
-            vpc=network.vpc,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ),
-            subnet_group=rds_subnet_group,
-            security_groups=[network.sg_rds],
-            database_name="scorestream",
-            instance_identifier="scorestream-rds",
-            credentials=rds.Credentials.from_generated_secret(
-                username="scorestream",
-                secret_name="scorestream/rds-credentials"
-            ),
-            multi_az=False,
-            allocated_storage=20,
-            max_allocated_storage=100,
-            removal_policy=RemovalPolicy.RETAIN,
-            storage_encrypted=True,
-            backup_retention=Duration.days(7),
-            deletion_protection=True,
-            publicly_accessible=False
-        )
-
-        self.secret_rds = self.rds_instance.secret
+        self.rds_instance = rds.rds_instance
+        self.secret_rds = rds.secret_rds
+        self.rds_endpoint = rds.rds_endpoint
+        self.rds_port = rds.rds_port
 
         redis_subnet_group = elasticache.CfnSubnetGroup(
             self,
@@ -90,9 +44,6 @@ class DataStack(Stack):
 
         self.redis_endpoint = self.redis_cluster.attr_redis_endpoint_address
         self.redis_port = self.redis_cluster.attr_redis_endpoint_port
-
-        self.rds_endpoint = self.rds_instance.db_instance_endpoint_address
-        self.rds_port = self.rds_instance.db_instance_endpoint_port
 
         ## BASTION GROUP - TEMPORARY, COMMENT OUT WHEN NOT NEEDED
 

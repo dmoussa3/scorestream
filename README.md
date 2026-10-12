@@ -1,8 +1,8 @@
 # ScoreStream
 
-A real-time football data pipeline built with Kafka, PySpark Structured Streaming, Apache Airflow, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose for local development and deployed to AWS using CDK.
+A real-time sports data pipeline and analytics platform built with Kafka, PySpark Structured Streaming, PostgreSQL, and FastAPI — containerized end-to-end with Docker Compose for local development and deployed to AWS using CDK. An analytics layer powered by Snowflake and dbt sits on top of the operational pipeline, exposing mart tables through dedicated API endpoints.
 
-ScoreStream ingests live match data from **5 major European leagues and the MLS (Major League Soccer)** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel batch layer handles scheduled standings refreshes, season stats aggregation, and daily Parquet archiving. A natural language chat interface powered by Claude — with streamed, real-time responses over WebSocket — allows users to query live pipeline data in plain English and receive both text answers and dynamically generated charts.
+ScoreStream ingests live match data from **5 major European leagues and the MLS (Major League Soccer)** via the ESPN public API, streams events through Kafka, processes them with PySpark in real time, and serves the results via a REST API with Redis caching and WebSocket push. A parallel batch layer handles scheduled standings refreshes, season stats aggregation, and daily Parquet archiving to S3 — which feeds a nightly Snowflake load and dbt model refresh. A natural language chat interface powered by Claude — with streamed, real-time responses over WebSocket — allows users to query live pipeline data in plain English and receive both text answers and dynamically generated charts.
 
 ---
 
@@ -23,8 +23,8 @@ Python Producer
         │
         ▼
 PySpark Structured Streaming
-  ├── process_games     →  games table       (upsert, every 5s)
-  └── process_goals →  goals table   (delete-then-upsert keyed on game_id + team_id + seconds)
+  ├── process_games  →  games table  (upsert, every 5s)
+  └── process_goals  →  goals table  (delete-then-upsert keyed on game_id + team_id + seconds)
         │
         ▼
 PostgreSQL ←→ Redis (dynamic TTL)
@@ -36,13 +36,7 @@ FastAPI REST API + WebSocket (/ws, /ws/chat)
 Airflow (batch layer)
   ├── standings_refresh    →  every 30 min, all 6 competitions
   ├── season_stats_refresh →  every 15 min
-  └── epl_daily_archive    →  nightly Parquet snapshots
-
-Claude AI Chat (/ws/chat — streamed over WebSocket)
-  ├── SQL generation       →  natural language → PostgreSQL query
-  ├── Query execution      →  safe read-only execution
-  ├── Chart detection      →  bar / line / pie or text-only
-  └── Answer streaming     →  token-by-token via Claude streaming API
+  └── archive_daily        →  nightly Parquet snapshots → S3
 ```
 
 ### AWS Production
@@ -53,45 +47,93 @@ Users
 CloudFront → S3 (React frontend)
   ↓ HTTP
 ALB → FastAPI (ECS Fargate, private subnet)
-         ↓                    ↓
-    RDS PostgreSQL      ElastiCache Redis
+         ↓                    ↓                   ↓
+    RDS PostgreSQL      ElastiCache Redis    Snowflake (analytics)
          ↑
     AWS Glue Streaming ←── Amazon MSK ←── Producer (ECS Fargate) ←── ESPN API
 
 EventBridge Scheduler → Fargate tasks (standings refresh, daily archive)
                                 ↓
-                          RDS + S3
+                          RDS + S3 (Parquet)
+                                ↓
+                         Snowflake RAW schema
+                                ↓
+                          dbt (staging → marts)
+                                ↓
+                     FastAPI /analytics/* endpoints
 
 CloudWatch Dashboard + Alarms → SNS → Email
+```
+
+### Analytics Layer (Snowflake + dbt)
+
+```
+S3 (nightly Parquet archive)
+        │
+        ▼  external stage + COPY INTO
+Snowflake RAW schema
+  ├── games
+  ├── goals
+  ├── standings
+  └── season_stats
+        │
+        ▼  dbt run
+Snowflake STAGING schema
+  ├── stg_scorestream__games
+  ├── stg_scorestream__goals
+  ├── stg_scorestream__standings
+  └── stg_scorestream__season_stats
+        │
+        ▼  dbt run
+Snowflake MARTS schema
+  ├── fct_goals          — goal events enriched with game context
+  ├── fct_games          — completed matches with derived metrics
+  ├── dim_teams          — current standings snapshot per team
+  ├── mart_player_stats  — current season top scorers across all leagues
+  └── mart_league_summary — aggregate match and goal metrics per competition
 ```
 
 ---
 
 ## AWS Infrastructure (CDK)
 
-The entire AWS infrastructure is defined as code using AWS CDK (Python) in the `infra/` directory. The stack is organized into six independent deployable units:
+The entire AWS infrastructure is defined as code using AWS CDK (Python) in the `infra/` directory. The stack is organized into seven independent deployable units:
 
-| Stack           | Resources                                                                                                   |
-| --------------- | ----------------------------------------------------------------------------------------------------------- |
-| NetworkStack    | VPC, public/private subnets, NAT gateway, security groups, Secrets Manager                                  |
-| DataStack       | RDS PostgreSQL, ElastiCache Redis, S3 (Glue scripts and checkpoints)                                        |
-| MskStack        | Amazon MSK Kafka cluster with IAM authentication                                                            |
-| ComputeStack    | ECS cluster, producer service, Glue streaming job, API service, ALB, scheduler tasks, EventBridge schedules |
-| EdgeStack       | S3 (frontend), CloudFront distribution with OAC                                                             |
-| MonitoringStack | CloudWatch dashboard, alarms, SNS topic                                                                     |
+| Stack           | Resources                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| NetworkStack    | VPC, public/private subnets, NAT gateway, security groups, Secrets Manager references                        |
+| RdsStack        | RDS PostgreSQL — permanent stack, never destroyed, `RemovalPolicy.RETAIN`                                    |
+| DataStack       | ElastiCache Redis, S3 (Glue scripts, checkpoints, Parquet archive)                                           |
+| MskStack        | Amazon MSK Kafka cluster with IAM authentication                                                             |
+| ComputeStack    | ECS cluster, producer service, Glue streaming job, API service, ALB, scheduler tasks, EventBridge schedules  |
+| EdgeStack       | S3 (frontend), CloudFront distribution with OAC                                                              |
+| MonitoringStack | CloudWatch dashboard, alarms, SNS topic                                                                      |
 
-Deploy all stacks:
+**Teardown** (RdsStack and NetworkStack always stay up):
 
 ```bash
-cd infra
-pip install -r requirements.txt
-cdk deploy --all
+# 1 — set nat_gateways=0 in network_stack.py
+cdk destroy MonitoringStack --force
+cdk destroy EdgeStack --force
+cdk destroy ComputeStack --force
+cdk destroy MskStack --force
+cdk destroy DataStack --force
+cdk deploy NetworkStack   # removes NAT gateway, keeps VPC/subnets/SGs
 ```
 
-Tear down:
+**Restart**:
 
 ```bash
-cdk destroy --all
+# 1 — set nat_gateways=1 in network_stack.py
+cdk deploy NetworkStack
+cdk deploy DataStack
+cdk deploy MskStack
+aws s3 cp spark/streaming_job_aws.py s3://scorestream-glue-ACCOUNT/scripts/streaming_job.py
+cdk deploy ComputeStack
+# rebuild frontend with new CloudFront domain
+cdk deploy EdgeStack
+cdk deploy MonitoringStack
+aws glue start-job-run --job-name scorestream-streaming
 ```
 
 ---
@@ -168,20 +210,55 @@ key, value, last_updated
 
 ---
 
+## Snowflake Schema (dbt)
+
+The dbt project lives in `scorestream_dbt/` and follows a standard three-layer architecture.
+
+**RAW** — direct mirror of nightly Parquet archives loaded via S3 external stage. One table per operational source: `games`, `goals`, `standings`, `season_stats`.
+
+**STAGING** — light cleaning and type casting on top of RAW. Renames columns to consistent conventions, casts timestamps to `TIMESTAMP_TZ`, derives `goal_category` (`Open Play` / `Penalty` / `Own Goal`), and converts kickoff times to Eastern timezone. Views materialized in Snowflake.
+
+**MARTS** — analytics-ready fact and dimension tables. Tables materialized in Snowflake.
+
+| Model                 | Description                                                              |
+| --------------------- | ------------------------------------------------------------------------ |
+| `fct_goals`           | Goal events joined to game context — scoring team, match date, day name  |
+| `fct_games`           | Completed matches with derived result type, total goals, goal difference  |
+| `dim_teams`           | Current standings snapshot per team including playoff position flag       |
+| `mart_player_stats`   | Current season top scorers derived from match goal events                 |
+| `mart_league_summary` | Aggregate per-competition metrics: matches, goals, home/away splits       |
+
+dbt tests cover `not_null`, `unique`, `accepted_values`, and `relationships` across all models. Run the full suite:
+
+```bash
+cd scorestream_dbt
+source dbt-env/bin/activate
+dbt run
+dbt test
+dbt docs generate && dbt docs serve  # lineage graph at localhost:8080
+```
+
+---
+
 ## API Endpoints
 
 ```
-GET   /                          — Service info
-GET   /health                    — DB and cache connectivity
-GET   /health/pipeline           — Pipeline component status
-GET   /games                     — Games, filterable by ?status=, ?league=, ?window=
-GET   /games/{game_id}           — Single game
-GET   /games/{game_id}/stats     — Goal events for a game
-GET   /standings                 — League/group table by ?league=
-GET   /leagues                   — All competitions with data
-POST  /chat                      — Natural language query (legacy)
-WS    /ws                        — Real-time score/standings push
-WS    /ws/chat                   — Streamed AI chat
+GET   /                              — Service info
+GET   /health                        — DB and cache connectivity
+GET   /health/pipeline               — Pipeline component status
+GET   /games                         — Games, filterable by ?status=, ?league=, ?window=
+GET   /games/{game_id}               — Single game
+GET   /games/{game_id}/stats         — Goal events for a game
+GET   /standings                     — League/group table by ?league=
+GET   /leagues                       — All competitions with data
+POST  /chat                          — Natural language query (legacy)
+WS    /ws                            — Real-time score/standings push
+WS    /ws/chat                       — Streamed AI chat
+
+GET   /analytics/top-scorers         — Top scorers from Snowflake mart, ?league=, ?limit=
+GET   /analytics/league-summary      — Per-competition aggregate metrics from Snowflake
+GET   /analytics/team/{id}/form      — Last N results for a team from Snowflake
+GET   /analytics/goals/breakdown     — Goal type breakdown (open play / penalty / own goal)
 ```
 
 ---
@@ -259,22 +336,45 @@ scorestream/
 ├── sql/
 │   └── init.sql
 ├── producer/
-│   └── espn_producer.py            # ESPN → Kafka (6 competitions)
+│   └── espn_producer.py              # ESPN → Kafka (6 competitions)
 ├── spark/
-│   ├── streaming_job.py            # Local PySpark consumer
-│   └── streaming_job_aws.py        # AWS Glue streaming consumer
+│   ├── streaming_job.py              # Local PySpark consumer
+│   └── streaming_job_aws.py          # AWS Glue streaming consumer
 ├── scheduler/
 │   ├── Dockerfile
-│   ├── entrypoint.sh               # Routes SCHEDULER_JOB env var to script
+│   ├── entrypoint.sh                 # Routes SCHEDULER_JOB env var to script
 │   ├── refresh_standings.py
 │   ├── refresh_season_stats.py
-│   └── archive_daily.py
+│   └── archive_daily.py              # Nightly Parquet → S3 → Snowflake load
 ├── dags/
 │   ├── standings_refresh.py
 │   ├── season_stats_refresh.py
 │   └── epl_daily_archive.py
 ├── api/
-│   └── main.py                     # FastAPI + WebSocket + /ws/chat
+│   ├── main.py                       # FastAPI + WebSocket + /ws/chat
+│   ├── snowflake_db.py               # Snowflake connection (Secrets Manager)
+│   └── routers/
+│       └── analytics.py              # /analytics/* endpoints → Snowflake marts
+├── scorestream_dbt/                  # dbt project
+│   ├── dbt_project.yml
+│   ├── models/
+│   │   ├── staging/
+│   │   │   ├── _sources.yml
+│   │   │   ├── _staging.yml
+│   │   │   ├── stg_scorestream__games.sql
+│   │   │   ├── stg_scorestream__goals.sql
+│   │   │   ├── stg_scorestream__standings.sql
+│   │   │   └── stg_scorestream__season_stats.sql
+│   │   └── marts/
+│   │       ├── _marts.yml
+│   │       ├── fct_goals.sql
+│   │       ├── fct_games.sql
+│   │       ├── dim_teams.sql
+│   │       ├── mart_player_stats.sql
+│   │       └── mart_league_summary.sql
+│   ├── macros/
+│   │   └── generate_schema_name.sql
+│   └── seeds/
 ├── frontend/
 │   └── src/
 │       ├── App.jsx
@@ -287,13 +387,13 @@ scorestream/
 │       └── components/
 │           ├── ScoresTab.jsx
 │           ├── StandingsTab.jsx
-│           ├── BracketTab.jsx
 │           ├── MatchesTab.jsx
 │           ├── PipelineTab.jsx
 │           └── ChatTab.jsx
-├── infra/                          # AWS CDK (Python)
+├── infra/                            # AWS CDK (Python)
 │   ├── app.py
 │   ├── network_stack.py
+│   ├── rds_stack.py                  # Permanent — never destroyed
 │   ├── data_stack.py
 │   ├── msk_stack.py
 │   ├── compute_stack.py
@@ -371,10 +471,13 @@ cd infra
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Build and push container images to ECR first
-# (see infra/README.md for image build commands)
-
-cdk deploy --all
+cdk deploy NetworkStack
+cdk deploy RdsStack
+cdk deploy DataStack
+cdk deploy MskStack
+cdk deploy ComputeStack
+cdk deploy EdgeStack
+cdk deploy MonitoringStack
 ```
 
 ### Secrets
@@ -383,21 +486,37 @@ After deploy, set secret values:
 
 ```bash
 aws secretsmanager put-secret-value \
-    --secret-id "scorestream/anthropic-api-key" \
+    --secret-id "scorestream/anthropic_api_key" \
     --secret-string "your-key"
 
 aws secretsmanager put-secret-value \
-    --secret-id "scorestream/football-data-api-key" \
+    --secret-id "scorestream/football_data_api_key" \
     --secret-string "your-key"
+
+aws secretsmanager put-secret-value \
+    --secret-id "scorestream/snowflake-credentials" \
+    --secret-string '{
+        "account": "your-account",
+        "user": "your-user",
+        "password": "your-password",
+        "warehouse": "SCORESTREAM_WH",
+        "database": "SCORESTREAM",
+        "schema": "RAW"
+    }'
 ```
 
 RDS credentials are generated and managed automatically by RDS.
 
-### Tear down
+### Snowflake Setup
 
-```bash
-cdk destroy --all
-```
+1. Create a Snowflake account (free trial at snowflake.com, AWS us-east-1)
+2. Create warehouse `SCORESTREAM_WH`, database `SCORESTREAM`, schemas `RAW` / `STAGING` / `MARTS`
+3. Create an IAM role with S3 read access to the Glue bucket and configure a Snowflake storage integration
+4. Update the IAM trust policy with Snowflake's `STORAGE_AWS_IAM_USER_ARN` and `STORAGE_AWS_EXTERNAL_ID`
+5. Create the external stage pointing at the S3 archive folder
+6. Run `dbt run` to build all models
+
+The nightly archive task automatically triggers a Snowflake load after writing Parquet files to S3.
 
 ---
 
@@ -415,7 +534,11 @@ cdk destroy --all
 
 **Text-to-SQL with derived-category awareness** — Several football questions map to derived values: "open play" is `own_goal = false AND penalty_goal = false`, zero goals is a COUNT of 0 not an empty result set. Schema documentation and example queries explicitly spell out these derivations so Claude doesn't report available data as missing.
 
-**AWS architecture decisions** — EventBridge-scheduled Fargate tasks replace MWAA (managed Airflow) as the batch layer — the three scheduled jobs run for seconds every 15-30 minutes, making MWAA's $354/month minimum unjustifiable. The same Airflow DAG logic runs as standalone Python scripts selected by a SCHEDULER_JOB environment variable at container startup. MSK with IAM authentication replaces local Kafka — no credential management beyond the task role, and the aws-msk-iam-sasl-signer library generates short-lived tokens automatically from the Fargate task's IAM role. Glue streaming with S3 checkpoints replaces the local Spark container, eliminating cluster management while keeping the same PySpark Structured Streaming API.
+**Operational vs analytical data separation** — PostgreSQL serves the real-time application layer: low-latency upserts, connection pooling, Redis pub/sub. Snowflake serves the analytical layer: columnar storage for aggregate queries, dbt-managed semantic models, mart tables that non-technical stakeholders can query directly. The nightly archive task is the bridge — it writes Parquet snapshots to S3, which Snowflake loads via an external stage, keeping the two layers decoupled with no direct database-to-database connection.
+
+**dbt semantic modeling** — Staging models enforce data contracts (not_null, accepted_values, relationship tests) before data reaches marts. A custom `generate_schema_name` macro overrides dbt's default schema concatenation behavior so models land in `STAGING` and `MARTS` rather than `RAW_STAGING` and `RAW_MARTS`. Mart models use Snowflake's `QUALIFY ROW_NUMBER()` for window-function-safe top-N selection, avoiding the nested window function limitation that standard SQL approaches hit.
+
+**AWS architecture decisions** — EventBridge-scheduled Fargate tasks replace MWAA (managed Airflow) as the batch layer — the three scheduled jobs run for seconds every 15-30 minutes, making MWAA's $354/month minimum unjustifiable. MSK with IAM authentication replaces local Kafka — no credential management beyond the task role. Glue streaming with S3 checkpoints replaces the local Spark container. RDS lives in its own permanent `RdsStack` with `RemovalPolicy.RETAIN` and deletion protection — separating it from DataStack eliminates the VPC subnet group conflict that occurs when DataStack is torn down and recreated, which previously stranded RDS in an orphaned network.
 
 **Historical data backfill** — ESPN retains only ~3 weeks of scoreboard history. Football-data.org fills the gap for full-season data, but uses a completely different team ID numbering system. A manually curated mapping of 96+ teams cross-referenced by querying ESPN's live scoreboard across 30 days ensures historical games display correct logos regardless of which source populated them.
 
@@ -424,7 +547,7 @@ cdk destroy --all
 ## What's Next
 
 - Stream chat responses immediately on SQL completion rather than waiting for chart detection
-- Historical analytics tab using archived Parquet data via DuckDB
-- Assist tracking once a reliable ESPN field is confirmed
+- Extend `/analytics/*` endpoints with per-team and per-player drill-down views
+- Add incremental dbt models to replace nightly full-refresh once data volume grows
 - Production hardening: Multi-AZ RDS, MSK replication factor 3, WAF on ALB
 - CI/CD pipeline: GitHub Actions building and pushing images on merge, CDK deploy on tag
