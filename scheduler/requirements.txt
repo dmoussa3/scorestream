@@ -4,3 +4,4 @@ boto3
 pandas
 pyarrow
 datetime
+snowflake-connector-python

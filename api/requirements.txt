@@ -9,4 +9,3 @@ websockets
 anthropic
 boto3>=1.26.0
 snowflake-connector-python
-api
